@@ -23,8 +23,8 @@ DEFAULT_EXCLUDES = ["node_modules/", ".venv/", "venv/", "__pycache__/", "build/"
 def defaults():
     binary = shutil.which("rclone") or str(Path.home() / ".local/bin/rclone")
     return {"version": 1, "rclone_path": str(Path(binary).resolve()), "remote": "gdrive:",
-            "root_folder": "Linux-PC", "poll_interval_minutes": 5, "full_sync_interval_minutes": 60,
-            "debounce_seconds": 10,
+            "root_folder": "Linux-PC", "language": "auto", "poll_interval_minutes": 5,
+            "full_sync_interval_minutes": 60, "debounce_seconds": 10,
             "max_delete_percent": 25, "max_monitors": 20000, "paused": False,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
@@ -56,6 +56,8 @@ def validate(data):
         invalid("remote")
     if not component(result["root_folder"]):
         invalid("root_folder")
+    if result["language"] not in ("auto", "tr", "en"):
+        invalid("language")
     for field, minimum, maximum in (("poll_interval_minutes", 0, None),
                                      ("full_sync_interval_minutes", 0, None),
                                      ("debounce_seconds", 0, None),

@@ -5,8 +5,12 @@
 DriveSync keeps selected local folders in **two-way sync** with Google Drive under
 **My Drive / Linux-PC / your folder name / …**. It uses [rclone bisync](https://rclone.org/bisync/)
 with a Python + GTK/libadwaita desktop interface. New installations start with **no folders configured**.
-`Linux-PC` is configurable with `drivesync-cli config set root_folder "NAME"`. The application UI is Turkish;
-this guide includes the labels you will see.
+`Linux-PC` is configurable with `drivesync-cli config set root_folder "NAME"`. The application UI is available in English and Turkish;
+this guide notes the labels you will see.
+
+**Language / Dil:** the UI follows the system language (Turkish if it starts with `tr`, otherwise English).
+Override it with `drivesync-cli config set language en` (or `tr`; `auto` is the default) or the
+`DRIVESYNC_LANG=en` environment variable.
 
 ## Screenshots
 

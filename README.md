@@ -48,7 +48,10 @@ Ajan uzun ilk aktarımı arka planda başlatıp ilerlemeyi kontrol edebilir.
 Hedeflenen ve test edilen masaüstü: **Zorin OS 18 / Ubuntu 24.04, GNOME 46 (X11)**.
 Python 3.12, systemd kullanıcı oturumu, tarayıcı, kişisel Google hesabı ve **rclone >= 1.66** gerekir.
 Wayland'da dosya eşitleme X11'e bağlı değildir; tepsi/portal ve Nautilus görünümünü kendi oturumunuzda kontrol edin.
-KDE gibi diğer masaüstleri ayrıca doğrulanmadı. Uygulama Türkçe arayüz sunar.
+KDE gibi diğer masaüstleri ayrıca doğrulanmadı. Uygulama Türkçe ve İngilizce arayüz sunar.
+
+**Dil / Language:** Arayüz dili sistem diline göre seçilir (Türkçe değilse İngilizce). Değiştirmek için
+`drivesync-cli config set language tr` veya `en` (`auto` varsayılandır); `DRIVESYNC_LANG=en` ortam değişkeni de çalışır.
 
 Gerekli paketler, kodun GI sürüm kontrolleriyle eşleşir: `python3-gi`,
 `gir1.2-gtk-3.0`, `gir1.2-gtk-4.0`, `gir1.2-adw-1`, `gir1.2-notify-0.7`,

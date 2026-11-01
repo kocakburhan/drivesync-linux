@@ -38,6 +38,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "rclone_path": "/usr/bin/rclone",
   "remote": "gdrive:",
   "root_folder": "Linux-PC",
+  "language": "auto",
   "poll_interval_minutes": 5,
   "full_sync_interval_minutes": 60,
   "debounce_seconds": 10,
@@ -54,6 +55,8 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
 }
 ```
 
+- `language`: `"auto"` | `"tr"` | `"en"`. Precedence: config `tr`/`en` > env `DRIVESYNC_LANG` > locale (`LANGUAGE`, `LC_ALL`,
+  `LC_MESSAGES`, `LANG`; Turkish if it starts with `tr`, otherwise English). Strings live in `src/drivesync/i18n.py`.
 - Remote path of a folder = `<remote><root_folder>/<remote_name>` e.g. `gdrive:Linux-PC/Documents`.
 - `initialized=false` means the folder has never completed a `--resync`; the daemon must NOT run normal bisync on it.
 - Unknown keys are preserved on save. Missing keys get defaults. Config is validated; invalid config → clear Turkish error.

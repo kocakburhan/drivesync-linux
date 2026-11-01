@@ -28,7 +28,7 @@ class RealRcloneTests(unittest.TestCase):
         self.root = Path(temporary.name)
         # A whitelist also prevents inherited RCLONE_* options (such as
         # --copy-links, remote credentials or config overrides) changing the run.
-        self.env = {"PATH": os.defpath, "LANG": "C.UTF-8"}
+        self.env = {"PATH": os.defpath, "LANG": "C.UTF-8", "DRIVESYNC_LANG": "tr"}
         for name in ("HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
                      "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "TMPDIR"):
             directory = self.root / name.lower()

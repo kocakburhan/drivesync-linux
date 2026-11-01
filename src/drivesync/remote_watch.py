@@ -15,7 +15,8 @@ from .config import remote_path
 from .paths import write_json
 from .rclone import executable
 
-SKEW = timedelta(minutes=2)
+# Drive search can lag several minutes behind uploads; re-check that window every time.
+SKEW = timedelta(minutes=10)
 QUERY_TIMEOUT = 180
 LIST_TIMEOUT = 600
 _NETWORK = ["--contimeout", "15s", "--timeout", "60s", "--retries", "1", "--low-level-retries", "1"]

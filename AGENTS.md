@@ -195,7 +195,9 @@ blocked by the deletion guard without a pending resync. Ordinary `sync` queues a
 Quote paths/patterns. For a pattern starting with `-`, put options before the separator:
 `drivesync-cli config excludes add --json -- '-example'`.
 
-Safe scalar keys: `root_folder` (one safe path component, no `/`, `\`, `:`, control characters, `.` or `..`),
+Safe scalar keys: `language` (`"auto"` default, `"tr"` or `"en"`; plain string, not JSON; sets the UI language of the app,
+daemon, tray, CLI and Nautilus; `auto` follows `DRIVESYNC_LANG`, then `LANGUAGE`/`LC_ALL`/`LC_MESSAGES`/`LANG`),
+`root_folder` (one safe path component, no `/`, `\`, `:`, control characters, `.` or `..`),
 `poll_interval_minutes` (finite number > 0), `full_sync_interval_minutes` (finite number > 0, default 60:
 safety-net full bisync interval; between full syncs a cheap Drive change check decides), `debounce_seconds` (finite number >= 0),
 `max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1).
@@ -208,7 +210,7 @@ JSON stdout is one object, never mixed with progress prose. Every successful JSO
 exit 1 means failure, 2 means argument syntax error, 130 means interrupted. Doctor exits 0 iff no check is `fail`
 (warnings are allowed). Status exits 0 when read successfully even if the daemon/folders report an error.
 Runtime failures with `--json` return `{"schema_version":1,"ok":false,"error":{"code":"invalid_request","message":"…"}}`;
-other codes are `busy`, `sync_failed`, `operation_failed`, `daemon_unavailable`. Human messages are Turkish.
+other codes are `busy`, `sync_failed`, `operation_failed`, `daemon_unavailable`. Human messages are Turkish or English (see `language`).
 Argument syntax errors use Turkish stderr with exit 2; help/version are plain text. Interrupted runs use stderr.
 
 - **doctor**: `{"schema_version":1,"ok":true,"checks":[{"id":"rclone.version","status":"ok","message":"…","fix":"./install.sh --with-rclone","details":{}}]}`.
