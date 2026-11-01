@@ -863,6 +863,11 @@ _STRINGS = {
     "SECURE_ACTION_HELP": (
         'enable, disable veya status',
         'enable, disable or status'),
+
+    # --- parallel lanes ---
+    "TRAY_SYNCING_MANY": (
+        'Eşitleniyor: {names}',
+        'Syncing: {names}'),
 }
 
 HELP = _Localized({

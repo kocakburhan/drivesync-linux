@@ -33,7 +33,7 @@ def defaults():
             "assumed_upload_bytes_per_second": 1048576,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "bwlimit": "", "pause_on_battery": False, "pause_on_metered": True,
-            "pause_stops_running": False, "rclone_password_command": "",
+            "pause_stops_running": False, "rclone_password_command": "", "parallel_lanes": True,
             "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
             "excludes": list(DEFAULT_EXCLUDES), "folders": []}
 
@@ -110,7 +110,8 @@ def validate(data):
     command = result["rclone_password_command"]
     if not isinstance(command, str) or (command and (not clean_text(command) or command != command.strip())):
         invalid("rclone_password_command")
-    for field in ("paused", "pause_on_battery", "pause_on_metered", "pause_stops_running", "check_updates"):
+    for field in ("paused", "pause_on_battery", "pause_on_metered", "pause_stops_running", "check_updates",
+                  "parallel_lanes"):
         if type(result[field]) is not bool:
             invalid(field)
     if not isinstance(result["excludes"], list):

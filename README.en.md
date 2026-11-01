@@ -159,6 +159,9 @@ or **Yeniden eşitle** in the window.
 ## Usage and settings
 
 The window shows overall/folder status, live progress, recent conflicts, logs and settings.
+The daemon runs two lanes: initial sync/resync of a big folder uses one, routine syncs of your other folders use the
+other, so their changes reach Drive during a multi-hour upload. Two jobs never touch the same folder.
+`drivesync-cli config set parallel_lanes false` restores one job at a time; `bwlimit` applies to each job separately.
 Tray actions include **Şimdi eşitle** (Sync now), **Duraklat / Devam et** (Pause / Resume),
 **Drive'da aç** (Open Drive), **Pencereyi aç** (Open window).
 Pause prevents new automatic jobs; it does not cancel a running transfer.
