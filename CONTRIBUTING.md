@@ -42,6 +42,10 @@ Before opening a PR:
 - Remove personal paths, emails, OAuth JSON, tokens, logs and screenshots with personal data.
 - Confirm no Google/network access or real user-directory mutations occurred during tests.
 
+Screenshots in `docs/screenshots/` are generated from demo data with
+`python3 tools/make_screenshots.py` (needs a graphical session; it runs in an isolated
+D-Bus session and temporary XDG directories and never touches real settings or Drive).
+
 Report bugs with the issue template. Do not attach full config files or OAuth credentials.
 Contributions are licensed under the repository's MIT license.
 

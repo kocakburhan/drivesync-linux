@@ -8,6 +8,14 @@ with a Python + GTK/libadwaita desktop interface. New installations start with *
 `Linux-PC` is configurable with `drivesync-cli config set root_folder "NAME"`. The application UI is Turkish;
 this guide includes the labels you will see.
 
+## Screenshots
+
+The images use demo data only (the interface is Turkish).
+
+![DriveSync main window with one folder showing live progress](docs/screenshots/window.png)
+
+![Initial sync review: planned actions and typed deletion confirmation](docs/screenshots/initial-sync.png)
+
 ## Set up with an AI agent
 
 You can set up DriveSync with Codex, OpenCode, Claude Code, Gemini CLI or another coding agent:

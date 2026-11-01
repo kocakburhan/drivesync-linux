@@ -8,6 +8,14 @@ Dosyalar Drive'da **Drive'ım / Linux-PC / seçtiğiniz klasör adı / …** alt
 `drivesync-cli config set root_folder "AD"` ile değiştirilebilir. Eşitleme motoru [rclone bisync](https://rclone.org/bisync/),
 masaüstü arayüzü Python + GTK/libadwaita'dır. İlk kurulumda hiçbir klasör seçili değildir.
 
+## Ekran görüntüleri
+
+Görüntülerde yalnızca örnek (demo) veriler vardır.
+
+![DriveSync ana pencere: bir klasör canlı ilerleme gösteriyor](docs/screenshots/window.png)
+
+![İlk eşitleme özeti: planlanan işlemler ve silme onayı](docs/screenshots/initial-sync.png)
+
 ## Yapay zekâ asistanıyla kurulum
 
 Codex, OpenCode, Claude Code, Gemini CLI veya başka bir kodlama ajanıyla kurulumu birlikte yapabilirsiniz:
