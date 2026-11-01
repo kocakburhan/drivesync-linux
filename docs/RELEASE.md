@@ -1,6 +1,6 @@
 # Public release checks
 
-The working tree is prepared for 0.2.0. Before publishing:
+The working tree is prepared for 0.3.0. Before publishing:
 
 - **Publish clean history.** Existing private development commits retain personal defaults
   removed from the current source/docs/tests. Do not push that history to the public repository.
