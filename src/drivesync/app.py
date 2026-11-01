@@ -452,7 +452,13 @@ class DriveSyncApp(Adw.Application, StatusClient):
         clear = button(i18n.CLEAR, lambda: self.clear_conflicts(window))
         header.pack_end(clear)
         content.append(header)
-        group = Adw.PreferencesGroup(description=i18n.CONFLICT_POLICY)
+        keep_both = False
+        try:
+            keep_both = config.load(self.paths, create=False)["conflict_policy"] == "keep_both"
+        except (config.ConfigError, OSError):
+            pass
+        group = Adw.PreferencesGroup(description=i18n.CONFLICT_KEEP_BOTH_NOTE if keep_both
+                                     else i18n.CONFLICT_POLICY)
         entries = (self.status or {}).get("recent_conflicts", [])
         clear.set_sensitive(bool(entries))
         if not entries:
@@ -460,9 +466,10 @@ class DriveSyncApp(Adw.Application, StatusClient):
         for entry in reversed(entries):
             winner = {"local": i18n.WINNER_LOCAL, "remote": i18n.WINNER_REMOTE}.get(
                 entry.get("winner"), i18n.WINNER_UNKNOWN)
+            kept = f'\n{i18n.CONFLICT_KEPT_COPY.format(path=entry["renamed"])}' if entry.get("renamed") else ""
             row = Adw.ActionRow(title=entry["path"], use_markup=False,
                                subtitle=f'{entry.get("folder_name", entry["folder"])} · '
-                                        f'{entry["time"]}\n{winner}')
+                                        f'{entry["time"]}\n{winner}{kept}')
             target = entry.get("folder_local")
             action = button(i18n.OPEN_FOLDER, lambda p=target: self.open_uri(Path(p).as_uri()))
             action.set_sensitive(bool(target) and Path(target).is_absolute())
@@ -775,6 +782,11 @@ class DriveSyncApp(Adw.Application, StatusClient):
                            model=Gtk.StringList.new([str(n) for n in intervals]))
         poll.set_selected(intervals.index(data["poll_interval_minutes"]))
         group.add(poll)
+        policy = Adw.ComboRow(title=i18n.CONFLICT_POLICY_LABEL, subtitle=i18n.CONFLICT_POLICY_HINT,
+                              model=Gtk.StringList.new([i18n.CONFLICT_POLICY_NEWER,
+                                                        i18n.CONFLICT_POLICY_KEEP_BOTH]))
+        policy.set_selected(1 if data.get("conflict_policy") == "keep_both" else 0)
+        group.add(policy)
         def spin(title, value, maximum):
             row = Adw.ActionRow(title=title)
             widget = Gtk.SpinButton.new_with_range(0, max(maximum, value), 1)
@@ -818,7 +830,8 @@ class DriveSyncApp(Adw.Application, StatusClient):
             if self.edit_config(lambda latest: app_model.settings_edit(latest,
                     intervals[poll.get_selected()], debounce.get_value(), max_delete.get_value(),
                     [entry.get_text() for entry in entries], bwlimit=bandwidth.get_text(),
-                    pause_on_battery=on_battery.get_active(), pause_on_metered=on_metered.get_active())):
+                    pause_on_battery=on_battery.get_active(), pause_on_metered=on_metered.get_active(),
+                    conflict_policy="keep_both" if policy.get_selected() == 1 else "newer")):
                 window.close()
         save_group.add(button(i18n.SAVE, save))
         page.add(save_group)

@@ -22,11 +22,24 @@ def executable(config):
     return os.path.expanduser(config["rclone_path"])
 
 
+CONFLICT_SUFFIX = "drivesync-conflict"
+
+
+def conflict_flags(config):
+    """Newer copy always wins the name; the loser is deleted or kept as ``<name>.drivesync-conflict1``.
+
+    Changing the policy does not change bisync's pair state, so no resync is required.
+    """
+    if config.get("conflict_policy") == "keep_both":
+        return ["--conflict-resolve", "newer", "--conflict-loser", "num", "--conflict-suffix", CONFLICT_SUFFIX]
+    return ["--conflict-resolve", "newer", "--conflict-loser", "delete"]
+
+
 def bisync_command(paths, config, folder, log, *, resync=False, dry_run=False, force=False):
     command = [executable(config), "bisync", os.path.expanduser(folder["local"]),
                remote_path(config, folder), "--workdir", str(paths.workdir / folder["id"]),
                "--filters-file", str(paths.filters_for(folder["id"])), "--resilient", "--recover", "--max-lock", "5m",
-               "--conflict-resolve", "newer", "--conflict-loser", "delete", "--check-access",
+               *conflict_flags(config), "--check-access",
                "--check-filename", CHECK_FILENAME, "--max-delete", str(config["max_delete_percent"]),
                "--drive-skip-gdocs", "--skip-links", "--create-empty-src-dirs", "--compare", "size,modtime",
                "--log-file", str(log), "--log-level", "INFO", "--stats", "2s", "--stats-one-line"]
@@ -135,10 +148,15 @@ def parse_log(path, exit_code, *, dry_run=False):
                 except ValueError:
                     timestamp = now()
                 conflict_details.setdefault(conflict[1], dict(path=redact(conflict[1]),
-                                                             time=timestamp, winner=None))
+                                                             time=timestamp, winner=None, renamed=None))
             winner = re.match(r"^(.+): The winner is: (Path[12])\s*$", message)
             if winner and winner[1] in conflict_details:
                 conflict_details[winner[1]]["winner"] = "local" if winner[2] == "Path1" else "remote"
+            # keep_both: rclone server-side moves the losing copy to its numbered name, e.g.
+            # "doc.txt: Moved (server-side) to: doc.txt.drivesync-conflict1" (rclone 1.75.2).
+            moved = re.match(r"^(.+): Moved \(server-side\) to: (.+)$", message)
+            if moved and moved[1] in conflict_details:
+                conflict_details[moved[1]]["renamed"] = redact(moved[2])
             if re.match(r"^(?:Safety abort: too many deletes(?:\s*\(|$)|Failed to bisync: too many deletes$)",
                         message, re.IGNORECASE):
                 result.blocked_delete = True

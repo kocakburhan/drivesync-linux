@@ -215,7 +215,9 @@ daemon, tray, CLI and Nautilus; `auto` follows `DRIVESYNC_LANG`, then `LANGUAGE`
 `root_folder` (one safe path component, no `/`, `\`, `:`, control characters, `.` or `..`),
 `poll_interval_minutes` (finite number > 0), `full_sync_interval_minutes` (finite number > 0, default 60:
 safety-net full bisync interval; between full syncs a cheap Drive change check decides), `debounce_seconds` (finite number >= 0),
-`max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1),
+`max_delete_percent` (finite number 0–100), `conflict_policy` (`"newer"` default: the older copy is deleted; `"keep_both"`:
+the older copy is kept as `<name>.drivesync-conflict1`; both keep the newer version under its name; no resync needed to change it),
+`transfers`, `init_transfers`, `checkers` (integers >= 1),
 `bwlimit` (plain string, `""` = unlimited, passed as rclone `--bwlimit` to every bisync run; accepted forms: `1M`, `500k`,
 `off`, upload:download split `10M:off`, timetable `"08:00,1M 23:00,off"` or `"Mon-08:00,512k:2M 22:00,off"`; sizes are
 numbers with optional `b|k|M|G|T|P` (+`i`/`B`); no resync needed; a running transfer keeps its old limit, the next run uses the new one),

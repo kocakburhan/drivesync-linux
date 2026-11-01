@@ -23,6 +23,16 @@ class AgentCliTests(IsolatedTest):
         self.assertEqual(value["schema_version"], 1)
         return value
 
+    def test_conflict_policy_config_set_validates_and_persists(self):
+        with patch("drivesync.cli.dbus_service.call", return_value=True) as call:
+            self.assertEqual(self.value("config", "set", "conflict_policy", "keep_both")["value"], "keep_both")
+        self.assertEqual(self.value("config", "get", "conflict_policy")["value"], "keep_both")
+        self.assertEqual(config.load(self.paths)["conflict_policy"], "keep_both")
+        self.assertEqual(call.call_count, 1)
+        before = self.paths.config.read_bytes()
+        self.assertFalse(self.value("config", "set", "conflict_policy", "keep", code=1)["ok"])
+        self.assertEqual(self.paths.config.read_bytes(), before)
+
     def test_folder_list_and_add_shapes_and_reload(self):
         self.assertEqual(self.value("folder", "list")["folders"], self.config["folders"])
         local = self.root / "Another Folder"

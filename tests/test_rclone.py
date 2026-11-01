@@ -46,6 +46,23 @@ class RcloneTests(IsolatedTest):
         self.assertNotIn("--resync", command)
         self.assertNotIn("--force", command)
 
+    def test_conflict_policy_flags_for_both_policies(self):
+        folder = self.config["folders"][0]
+        log = self.paths.logs / "run.log"
+        newer = rclone.bisync_command(self.paths, self.config, folder, log)
+        self.assertEqual(newer[newer.index("--conflict-resolve") + 1], "newer")
+        self.assertEqual(newer[newer.index("--conflict-loser") + 1], "delete")
+        self.assertNotIn("--conflict-suffix", newer)
+        self.config["conflict_policy"] = "keep_both"
+        for resync, dry_run in ((False, False), (True, False), (True, True)):
+            with self.subTest(resync=resync, dry_run=dry_run):
+                command = rclone.bisync_command(self.paths, self.config, folder, log,
+                                                resync=resync, dry_run=dry_run)
+                self.assertEqual(command[command.index("--conflict-resolve") + 1], "newer")
+                self.assertEqual(command[command.index("--conflict-loser") + 1], "num")
+                self.assertEqual(command[command.index("--conflict-suffix") + 1], "drivesync-conflict")
+                self.assertNotIn("delete", command)
+
     def test_resync_dryrun_and_force_are_explicit(self):
         command = rclone.bisync_command(self.paths, self.config, self.config["folders"][0],
                                         self.paths.logs / "test.log", resync=True, dry_run=True)

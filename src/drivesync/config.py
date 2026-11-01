@@ -16,6 +16,9 @@ class ConfigError(ValueError):
     pass
 
 
+# "newer": the older copy is deleted; "keep_both": it is kept as <name>.drivesync-conflict1.
+CONFLICT_POLICIES = ("newer", "keep_both")
+
 DEFAULT_EXCLUDES = ["node_modules/", ".venv/", "venv/", "__pycache__/", "build/",
                     "dist/", ".git/", "*.tmp", "*.swp", "*~", ".~lock.*", "~$*"]
 
@@ -25,7 +28,8 @@ def defaults():
     return {"version": 1, "rclone_path": str(Path(binary).resolve()), "remote": "gdrive:",
             "root_folder": "Linux-PC", "language": "auto", "poll_interval_minutes": 5,
             "full_sync_interval_minutes": 60, "debounce_seconds": 10,
-            "max_delete_percent": 25, "max_monitors": 20000, "paused": False, "check_updates": True,
+            "max_delete_percent": 25, "conflict_policy": "newer", "max_monitors": 20000, "paused": False,
+            "check_updates": True,
             "assumed_upload_bytes_per_second": 1048576,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "bwlimit": "", "pause_on_battery": False, "pause_on_metered": True,
@@ -79,6 +83,8 @@ def validate(data):
         invalid("root_folder")
     if result["language"] not in ("auto", "tr", "en"):
         invalid("language")
+    if result["conflict_policy"] not in CONFLICT_POLICIES:
+        invalid("conflict_policy")
     for field, minimum, maximum in (("poll_interval_minutes", 0, None),
                                      ("full_sync_interval_minutes", 0, None),
                                      ("debounce_seconds", 0, None),

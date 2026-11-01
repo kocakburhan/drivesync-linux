@@ -188,7 +188,7 @@ Removing a folder from the list leaves local and Drive files intact.
 - Normal two-way sync propagates deletions. rclone uses Drive trash by default; Google's trash retention is limited.
   Local deletions do not go to the desktop trash. Sync is not a substitute for independent backups.
   Do not disable Drive trash through rclone config or environment overrides.
-- Conflicts keep the version with the newer modification time and delete the loser. Inspect logs for tied timestamps/special cases.
+- Conflicts keep the version with the newer modification time. The default policy (`conflict_policy: "newer"`) deletes the loser; with `conflict_policy: "keep_both"` (Settings → "On conflict" → "Keep both", or `drivesync-cli config set conflict_policy keep_both`) the loser stays next to it as `name.drivesync-conflict1`, so nothing is lost on either side. Changing the policy does not require a resync. Inspect logs for tied timestamps/special cases.
 - Symlinks are skipped, as are native Google Docs/Sheets/Slides documents.
 - Default excludes: `node_modules/`, `.venv/`, `venv/`, `__pycache__/`, `build/`, `dist/`, `.git/`,
   `*.tmp`, `*.swp`, `*~`, `.~lock.*`, `~$*`. Do not remove `.drivesync-check` access markers.

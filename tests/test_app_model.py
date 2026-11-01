@@ -86,6 +86,14 @@ class AppModelTests(IsolatedTest):
             with self.assertRaises(config.ConfigError):
                 app_model.settings_edit(self.config, poll, debounce, maximum, excludes)
 
+    def test_settings_edit_conflict_policy(self):
+        self.assertEqual(app_model.settings_edit(self.config, 5, 10, 25, [])["conflict_policy"], "newer")
+        edited = app_model.settings_edit(self.config, 5, 10, 25, [], conflict_policy="keep_both")
+        self.assertEqual(edited["conflict_policy"], "keep_both")
+        self.assertEqual(app_model.settings_edit(edited, 5, 10, 25, [])["conflict_policy"], "keep_both")
+        with self.assertRaises(config.ConfigError):
+            app_model.settings_edit(self.config, 5, 10, 25, [], conflict_policy="bogus")
+
     def test_rows_express_init_resync_delete_block_and_relative_success(self):
         folder = self.config["folders"][0]
         row = app_model.folder_row(folder, {"status": "ok"})

@@ -146,6 +146,31 @@ class RealRcloneTests(unittest.TestCase):
             self.assertEqual(sorted(p.name for p in (side / "nested").iterdir()),
                              ["conflict report.txt"])
 
+    def test_keep_both_keeps_loser_renamed_next_to_newer_version(self):
+        self.config["conflict_policy"] = "keep_both"
+        name = "nested/conflict report.txt"
+        renamed = "nested/conflict report.txt.drivesync-conflict1"
+        self.write(self.local, name, "baseline", mtime=1_700_000_000)
+        self.initialize()
+        self.write(self.local, name, "older local edit", mtime=1_700_000_010)
+        self.write(self.remote, name, "newer remote edit", mtime=1_700_000_020)
+        result = self.run_bisync()
+        self.assertEqual(result.conflicts, 1, self.logs[-1])
+        entry, = result.resolved_conflicts
+        self.assertEqual((entry["winner"], entry["renamed"]), ("remote", renamed), self.logs[-1])
+        for side in (self.local, self.remote):
+            self.assertEqual((side / name).read_text(), "newer remote edit")
+            self.assertEqual((side / renamed).read_text(), "older local edit")
+
+    def test_switching_conflict_policy_needs_no_resync(self):
+        self.write(self.local, "before.txt", "before")
+        self.initialize()
+        self.config["conflict_policy"] = "keep_both"
+        self.write(self.local, "after.txt", "after")
+        # A resync requirement would make rclone exit 7, which run_bisync asserts against.
+        self.run_bisync()
+        self.assertEqual((self.remote / "after.txt").read_text(), "after")
+
     def test_max_delete_aborts_before_deleting_other_side(self):
         for number in range(8):
             self.write(self.local, f"file-{number}.txt", str(number))

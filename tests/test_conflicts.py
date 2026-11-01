@@ -15,11 +15,41 @@ REAL_CONFLICT = '''2026/11/01 02:11:56 NOTICE: - WARNING           New or change
 '''
 
 
+# Captured from a real rclone 1.75.2 keep_both run (--conflict-loser num --conflict-suffix
+# drivesync-conflict) on two local trees: the newer copy kept its name, the older was renamed.
+REAL_KEEP_BOTH = '''2026/11/01 05:59:05 NOTICE: - WARNING           New or changed in both paths                - doc.txt
+2026/11/01 05:59:05 INFO  : doc.txt: The winner is: Path2
+2026/11/01 05:59:05 NOTICE: - Path1             Renaming Path1 copy                         - local/doc.txt.drivesync-conflict1
+2026/11/01 05:59:05 INFO  : doc.txt: Moved (server-side) to: doc.txt.drivesync-conflict1
+2026/11/01 05:59:05 NOTICE: - Path1             Queue copy to Path2                         - remote/doc.txt.drivesync-conflict1
+2026/11/01 05:59:05 NOTICE: - Path2             Not renaming Path2 copy, as it was determined the winner - remote/doc.txt
+2026/11/01 05:59:05 NOTICE: - WARNING           New or changed in both paths                - nested/report.txt
+2026/11/01 05:59:05 INFO  : nested/report.txt: The winner is: Path2
+2026/11/01 05:59:05 NOTICE: - Path1             Renaming Path1 copy                         - local/nested/report.txt.drivesync-conflict1
+2026/11/01 05:59:05 INFO  : nested/report.txt: Moved (server-side) to: nested/report.txt.drivesync-conflict1
+2026/11/01 05:59:05 NOTICE: - Path1             Queue copy to Path2                         - remote/nested/report.txt.drivesync-conflict1
+2026/11/01 05:59:05 NOTICE: - Path2             Not renaming Path2 copy, as it was determined the winner - remote/nested/report.txt
+2026/11/01 05:59:05 INFO  : doc.txt.drivesync-conflict1: Copied (new)
+2026/11/01 05:59:05 INFO  : nested/report.txt.drivesync-conflict1: Copied (new)
+2026/11/01 05:59:05 INFO  : Bisync successful
+'''
+
+
 class ConflictTests(IsolatedTest):
     def parse(self, text=REAL_CONFLICT, code=0, **kwargs):
         log = self.root / "conflicts.log"
         log.write_text(text)
         return rclone.parse_log(log, code, **kwargs)
+
+    def test_keep_both_records_renamed_loser_from_real_log(self):
+        result = self.parse(REAL_KEEP_BOTH)
+        self.assertEqual(result.conflicts, 2)
+        by_path = {entry["path"]: entry for entry in result.resolved_conflicts}
+        self.assertEqual(by_path["doc.txt"]["winner"], "remote")
+        self.assertEqual(by_path["doc.txt"]["renamed"], "doc.txt.drivesync-conflict1")
+        self.assertEqual(by_path["nested/report.txt"]["renamed"], "nested/report.txt.drivesync-conflict1")
+        # The newer-wins policy deletes the loser: rclone logs no move, so nothing is recorded.
+        self.assertIsNone(self.parse().resolved_conflicts[0]["renamed"])
 
     def test_real_format_path_time_and_winning_side(self):
         result = self.parse()

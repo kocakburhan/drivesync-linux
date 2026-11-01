@@ -188,7 +188,7 @@ Klasör satırını listeden çıkarmak iki taraftaki dosyaları silmez.
 - Normal iki yönlü eşitlemede silmeler karşı tarafa da yansır. Drive tarafında rclone'un varsayılan
   çöp kutusu kullanılır; Google'ın çöp kutusu saklama süresi sınırlıdır. Yerel silmeler masaüstü çöp kutusuna gitmez.
   Eşitleme ayrı bir yedek yerine geçmez. `rclone.conf` veya ortam değişkeniyle çöp kutusunu kapatmayın.
-- Çakışmada değiştirilme zamanı daha yeni kopya kazanır, kaybeden silinir. Eşit zaman/özel durumları kayıtlarla inceleyin.
+- Çakışmada değiştirilme zamanı daha yeni kopya kazanır. Varsayılan ilke (`conflict_policy: "newer"`) kaybedeni siler; `conflict_policy: "keep_both"` (Ayarlar → "Çakışmada" → "İkisini de tut" veya `drivesync-cli config set conflict_policy keep_both`) ise kaybeden kopyayı `ad.drivesync-conflict1` adıyla yanında tutar, böylece iki tarafta da hiçbir şey kaybolmaz. İlkeyi değiştirmek yeniden eşitleme gerektirmez. Eşit zaman/özel durumları kayıtlarla inceleyin.
 - Sembolik bağlantılar izlenmez. Google Docs/Sheets/Slides gibi yerel dosya olmayan Google belgeleri atlanır.
 - Varsayılan hariç tutmalar: `node_modules/`, `.venv/`, `venv/`, `__pycache__/`, `build/`, `dist/`, `.git/`,
   `*.tmp`, `*.swp`, `*~`, `.~lock.*`, `~$*`. `.drivesync-check` erişim dosyasını silmeyin.

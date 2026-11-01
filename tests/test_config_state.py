@@ -47,6 +47,15 @@ class ConfigStateTests(IsolatedTest):
                 with self.assertRaises(config.ConfigError):
                     config.validate(data)
 
+    def test_conflict_policy_default_and_validation(self):
+        self.assertEqual(config.defaults()["conflict_policy"], "newer")
+        for value in ("newer", "keep_both"):
+            with self.subTest(value=value):
+                self.assertEqual(config.validate(dict(self.config, conflict_policy=value))["conflict_policy"], value)
+        for bad in ("keep", "KEEP_BOTH", "", None, True, ["keep_both"]):
+            with self.subTest(bad=bad), self.assertRaises(config.ConfigError):
+                config.validate(dict(self.config, conflict_policy=bad))
+
     def test_transfer_defaults_and_validation(self):
         value = config.validate({"folders": self.config["folders"]})
         self.assertEqual((value["transfers"], value["init_transfers"], value["checkers"]), (4, 8, 8))

@@ -295,9 +295,12 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
 
 
 SAFE_KEYS = ("root_folder", "language", "poll_interval_minutes", "full_sync_interval_minutes", "debounce_seconds",
-             "max_delete_percent", "transfers", "init_transfers", "checkers", "bwlimit",
+             "max_delete_percent", "conflict_policy", "transfers", "init_transfers", "checkers", "bwlimit",
              "pause_on_battery", "pause_on_metered", "pause_stops_running", "assumed_upload_bytes_per_second",
              "check_updates")
+
+# Scalar keys whose value is taken verbatim instead of parsed as JSON.
+PLAIN_TEXT_KEYS = ("root_folder", "language", "bwlimit", "conflict_policy")
 
 UPDATE_UNITS = ("drivesync.service", "drivesync-tray.service")
 
@@ -492,7 +495,7 @@ def config_command(paths, args):
         if args.action in ("get", "set"):
             if args.action == "set":
                 try:
-                    value = args.value if args.key in ("root_folder", "language", "bwlimit") else json.loads(args.value)
+                    value = args.value if args.key in PLAIN_TEXT_KEYS else json.loads(args.value)
                 except ValueError:
                     raise ValueError(i18n.CONFIG_ERROR.format(field=args.key)) from None
                 data[args.key] = value

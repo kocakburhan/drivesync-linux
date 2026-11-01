@@ -791,6 +791,25 @@ _STRINGS = {
     "UPDATE_START_FAILED": (
         'Güncelleme arka planda başlatılamadı (systemd-run).',
         'The update could not be started in the background (systemd-run).'),
+    # --- conflict policy ---
+    "CONFLICT_POLICY_LABEL": (
+        'Çakışmada',
+        'On conflict'),
+    "CONFLICT_POLICY_NEWER": (
+        'En yeni kazansın',
+        'Newest wins'),
+    "CONFLICT_POLICY_KEEP_BOTH": (
+        'İkisini de tut',
+        'Keep both'),
+    "CONFLICT_POLICY_HINT": (
+        'İkisini de tut: daha eski kopya silinmez, "dosya.drivesync-conflict1" adıyla yanında kalır. Ayar değişince yeniden eşitleme gerekmez.',
+        'Keep both: the older copy is not deleted; it stays next to the file as "file.drivesync-conflict1". Changing this never requires a resync.'),
+    "CONFLICT_KEEP_BOTH_NOTE": (
+        'Çakışmada en yeni sürüm aynı adla tutulur; eski sürüm "dosya.drivesync-conflict1" adıyla kalır.',
+        'On conflict the newest version keeps its name; the older one stays as "file.drivesync-conflict1".'),
+    "CONFLICT_KEPT_COPY": (
+        'Eski kopya: {path}',
+        'Older copy: {path}'),
 }
 
 HELP = _Localized({

@@ -44,6 +44,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "debounce_seconds": 10,
   "max_monitors": 20000,
   "max_delete_percent": 25,
+  "conflict_policy": "newer",
   "transfers": 4,
   "init_transfers": 8,
   "checkers": 8,
@@ -62,6 +63,12 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
 
 - `language`: `"auto"` | `"tr"` | `"en"`. Precedence: config `tr`/`en` > env `DRIVESYNC_LANG` > locale (`LANGUAGE`, `LC_ALL`,
   `LC_MESSAGES`, `LANG`; Turkish if it starts with `tr`, otherwise English). Strings live in `src/drivesync/i18n.py`.
+- `conflict_policy`: `"newer"` (default) or `"keep_both"`. Both keep the newer file under its name
+  (`--conflict-resolve newer`). `newer` adds `--conflict-loser delete`, so the older copy is removed.
+  `keep_both` adds `--conflict-loser num --conflict-suffix drivesync-conflict`, so the older copy is renamed to
+  `<name>.drivesync-conflict1` on its side, the rename is queued to the other side, and both sides end identical.
+  Observed with rclone 1.75.2 on local trees (both directions); rclone logs `<path>: Moved (server-side) to: <new path>`.
+  The policy is not part of the pair hash: changing it never requires a resync. Validated by `config.CONFLICT_POLICIES`.
 - `bwlimit`: `""` (unlimited) or an rclone `--bwlimit` value, passed to every bisync (normal, dry-run and init/resync).
   Validated locally by a conservative regex (`config.valid_bwlimit`): a rate is `off` or a number with optional
   `b|k|M|G|T|P` (+`i`, `B`); a limit is `rate` or `upload:download`; a timetable is space-separated `[Mon|Tue|Wed|Thu|Fri|Sat|Sun-]HH:MM,limit`
@@ -116,7 +123,7 @@ Normal run (per folder):
 rclone bisync <local> <remote_path>
   --workdir <workdir> --filters-file <filters/ID.txt>
   --resilient --recover --max-lock 5m
-  --conflict-resolve newer --conflict-loser delete
+  --conflict-resolve newer <conflict_policy flags>
   --check-access --check-filename .drivesync-check
   --max-delete <max_delete_percent>
   --drive-skip-gdocs --skip-links --create-empty-src-dirs
@@ -205,7 +212,8 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
   "filters_sha256": "…",
   "recent_conflicts": [
     {"path": "nested/report.txt", "folder": "documents", "folder_name": "Documents",
-     "folder_local": "/home/user/Documents", "time": "ISO with timezone", "winner": "local|remote|null"}
+     "folder_local": "/home/user/Documents", "time": "ISO with timezone", "winner": "local|remote|null",
+     "renamed": "nested/report.txt.drivesync-conflict1|null"}
   ],
   "folders": {
     "documents": {
@@ -222,6 +230,8 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
 Write atomically (temp file + `os.replace`). Timestamps ISO-8601 with timezone.
 `recent_conflicts` retains the last 100 resolved conflicts from successful non-preview runs.
 The rclone `The winner is: Path1/Path2` line identifies local/remote; otherwise winner is null.
+`renamed` is the relative path from `<path>: Moved (server-side) to: <new path>`, which rclone logs only for the
+`keep_both` loser (verified against rclone 1.75.2); otherwise null.
 History and folder results are written in one state transaction. Clearing history preserves all other state.
 
 ### D-Bus API (session bus)
