@@ -7,6 +7,9 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from isolation_guard import require_isolated_xdg
+require_isolated_xdg()
 from drivesync import app, config, i18n, init_flow
 
 

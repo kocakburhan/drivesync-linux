@@ -709,6 +709,88 @@ _STRINGS = {
     "DRY_LARGE_HINT": (
         "Alt klasörü hariç tutmak için: drivesync-cli config excludes add 'klasör-adı/' --json",
         "To exclude a subfolder: drivesync-cli config excludes add 'folder-name/' --json"),
+    # --- updates ---
+    "UPDATE_TITLE": (
+        'DriveSync {version} yayınlandı',
+        'DriveSync {version} is available'),
+    "UPDATE_ACTION": (
+        'Güncelle',
+        'Update'),
+    "UPDATE_BODY": (
+        'Sürüm notları: {url}',
+        'Release notes: {url}'),
+    "UPDATE_BANNER": (
+        'Yeni sürüm: {version}',
+        'New version: {version}'),
+    "UPDATE_BANNER_BUTTON": (
+        'Güncelle',
+        'Update'),
+    "UPDATE_RUNNING": (
+        'Güncelleniyor… Bu işlem birkaç dakika sürebilir.',
+        'Updating… this may take a few minutes.'),
+    "UPDATE_DONE_WINDOW": (
+        'Güncelleme tamamlandı. Yeni sürümü kullanmak için DriveSync penceresini yeniden açın.',
+        'Update finished. Reopen the DriveSync window to use the new version.'),
+    "UPDATE_FAILED_WINDOW": (
+        'Güncelleme tamamlanamadı: {message}',
+        'The update did not finish: {message}'),
+    "UPDATE_CURRENT_LATEST": (
+        'Mevcut sürüm: {current}\nEn son sürüm: {latest}',
+        'Installed version: {current}\nLatest version: {latest}'),
+    "UPDATE_AVAILABLE_LINE": (
+        'Yeni sürüm var. Güncellemek için: drivesync-cli update --yes',
+        'A new version is available. To update: drivesync-cli update --yes'),
+    "UPDATE_UP_TO_DATE": (
+        'DriveSync güncel.',
+        'DriveSync is up to date.'),
+    "UPDATE_CHECK_FAILED": (
+        'Güncelleme denetimi yapılamadı; bağlantıyı kontrol edin.',
+        'Could not check for updates; check the connection.'),
+    "UPDATE_NO_INFO": (
+        'Kurulum bilgisi bulunamadı (install-info.json). Kaynak klasörde ./install.sh çalıştırıp yeniden kurun.',
+        'Installation record not found (install-info.json). Run ./install.sh in the source folder to reinstall.'),
+    "UPDATE_NOT_CHECKOUT": (
+        'Kurulum kaynağı bir kaynak kodu klasörü değil veya bulunamadı: {path}',
+        'The installation source is not a source checkout or is missing: {path}'),
+    "UPDATE_DIRTY": (
+        'Kaynak klasörde kaydedilmemiş değişiklikler var; güncelleme durduruldu: {path}',
+        'The source folder has uncommitted changes; update stopped: {path}'),
+    "UPDATE_DETACHED": (
+        'Kaynak klasör bir dalda değil; güncelleme durduruldu.',
+        'The source folder is not on a branch; update stopped.'),
+    "UPDATE_NO_UPSTREAM": (
+        'Kaynak dalı origin deposunu izlemiyor; güncelleme durduruldu.',
+        'The source branch does not track origin; update stopped.'),
+    "UPDATE_BUSY": (
+        'Eşitleme veya ilk eşitleme sürüyor. Bitmesini bekleyin ya da --force-restart ile yeniden başlatın.',
+        'A sync or initial sync is running. Wait for it to finish or restart with --force-restart.'),
+    "UPDATE_FORCE_WARNING": (
+        'Uyarı: servisler yeniden başlatılacak. Devam eden ilk eşitleme yeniden başlatmadan sonra kaldığı yerden sürer.',
+        'Warning: the services will restart. A running initial sync resumes where it stopped after the restart.'),
+    "UPDATE_PULL_FAILED": (
+        'Kaynak güncellemesi (pull --ff-only) başarısız oldu; kaynak klasörü inceleyin. Kurulum değişmedi.',
+        'Source update (pull --ff-only) failed; check the source folder. The installation was not changed.'),
+    "UPDATE_INSTALL_FAILED": (
+        './install.sh başarısız oldu; kurulum yarım kalmış olabilir. Çıktıyı inceleyip ./install.sh ile yeniden deneyin.',
+        './install.sh failed; the installation may be incomplete. Check the output and run ./install.sh again.'),
+    "UPDATE_RESTART_FAILED": (
+        'Servisler yeniden başlatılamadı: systemctl --user restart drivesync.service drivesync-tray.service',
+        'The services could not be restarted: systemctl --user restart drivesync.service drivesync-tray.service'),
+    "UPDATE_DONE": (
+        'DriveSync güncellendi: {version}. Servisler yeniden başlatıldı.',
+        'DriveSync was updated to {version}. Services restarted.'),
+    "UPDATE_CHECK_HELP": (
+        'Yalnızca mevcut ve en son sürümü göster',
+        'Only show the installed and latest version'),
+    "UPDATE_FORCE_HELP": (
+        'Eşitleme sürerken de servisleri yeniden başlat',
+        'Restart the services even while a sync is running'),
+    "UPDATE_NO_CLI": (
+        'Güncelleme bildirimi: drivesync-cli bulunamadı.',
+        'Update notice: drivesync-cli was not found.'),
+    "UPDATE_START_FAILED": (
+        'Güncelleme arka planda başlatılamadı (systemd-run).',
+        'The update could not be started in the background (systemd-run).'),
 }
 
 HELP = _Localized({
@@ -757,6 +839,9 @@ HELP = _Localized({
     'progress': (
         'Bir klasörün canlı ilerlemesini göster',
         'Show the live progress of a folder'),
+    'update': (
+        'DriveSync sürümünü denetle veya güncelle',
+        'Check for or install a DriveSync update'),
 })
 
 STATUSES = _Localized({

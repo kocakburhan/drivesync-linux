@@ -1,6 +1,8 @@
+from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import tempfile
@@ -97,6 +99,14 @@ class InstallTests(unittest.TestCase):
                                 env=self.env, text=True, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), str(self.config))
+        record = json.loads((prefix / "lib/drivesync/install-info.json").read_text())
+        self.assertEqual(set(record), {"source_dir", "version", "installed_at"})
+        self.assertTrue(Path(record["source_dir"]).is_absolute())
+        self.assertEqual(Path(record["source_dir"]).resolve(), ROOT.resolve())
+        version = re.search(r'^__version__ = "([^"]+)"', (ROOT / "src/drivesync/__init__.py").read_text(),
+                            re.MULTILINE).group(1)
+        self.assertEqual(record["version"], version)
+        self.assertIsNotNone(datetime.fromisoformat(record["installed_at"]).tzinfo)
 
     def test_default_install_twice_uninstall_keeps_config_and_purge(self):
         prefix = self.home / ".local"

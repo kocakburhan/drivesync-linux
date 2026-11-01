@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import PurePath
 import re
 
-from . import config, i18n
+from . import __version__, config, i18n, updates
 from .presentation import present, relative_time, progress_text
 
 
@@ -59,6 +59,12 @@ def folder_row(folder, state, now=None):
 def overall_status(status, now=None):
     view = present(status, now)
     return i18n.APP_CURRENT.format(time=view.text.split(i18n.LAST_SYNC_SEPARATOR)[-1]) if view.icon == "ok" else view.text
+
+
+def update_notice(status, current=__version__):
+    """The newer release the daemon has seen, or None."""
+    latest = ((status or {}).get("update") or {}).get("latest")
+    return latest if updates.is_newer(latest, current) else None
 
 
 def recent_conflicts_visible(status):

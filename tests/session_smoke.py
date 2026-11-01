@@ -10,6 +10,9 @@ import xml.etree.ElementTree as ET
 
 from gi.repository import GLib
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from isolation_guard import require_isolated_xdg
+require_isolated_xdg()
 from support import ROOT
 from drivesync import config
 from drivesync.dbus_service import BUS_NAME, INTERFACE, OBJECT_PATH

@@ -228,7 +228,22 @@ Removing a folder from the list leaves local and Drive files intact.
 
 ## Updating and uninstalling
 
-From the repository directory:
+DriveSync checks GitHub for a new release at most once a day and announces it with a notification
+and a "New version" banner in the window. Turn the check off with
+`drivesync-cli config set check_updates false --json`.
+
+One-command update:
+
+```bash
+drivesync-cli update --check   # show the installed and latest version
+drivesync-cli update --yes     # update the source checkout, run ./install.sh, restart the services
+```
+
+`update --yes` stops when the source checkout has uncommitted changes, its branch does not track `origin`,
+or a sync or initial sync is running. `--force-restart` restarts anyway; a running initial sync then resumes
+after the restart.
+
+Manual update (from the repository directory):
 
 ```bash
 git pull && ./install.sh

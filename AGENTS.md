@@ -199,6 +199,8 @@ drivesync-cli pause
 drivesync-cli resume
 drivesync-cli logs [ID]
 drivesync-cli config-path
+drivesync-cli update [--check] [--json]
+drivesync-cli update --yes [--force-restart] [--json]
 drivesync-cli --version
 ```
 
@@ -222,7 +224,9 @@ numbers with optional `b|k|M|G|T|P` (+`i`/`B`); no resync needed; a running tran
 (Gio NetworkMonitor) or battery (UPower) condition holds, no new sync starts, work waits in the queue and the daemon status is
 `auto_paused` (`status` JSON has `auto_pause: "metered"|"battery"|null`, separate from the manual `paused`).
 `assumed_upload_bytes_per_second` (finite number > 0, default `1048576`; only converts the dry-run `size` into an estimated duration).
-Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys take `true`/`false`). Excludes must be nonempty strings without surrounding
+`check_updates` (`true` or `false`, default `true`: the daemon asks GitHub for the latest release at most once a day,
+without credentials, and only announces it; `false` turns the check off).
+Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys and `check_updates` take `true`/`false`). Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
 Per-folder excludes (subcommands `drivesync-cli folder excludes list`, `drivesync-cli folder excludes add` and
 `drivesync-cli folder excludes remove`, each taking the folder ID first as in the command list above; stored as optional `"excludes"` in the folder entry) use the same
@@ -266,6 +270,15 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
   The daemon object includes status and last_error; folder objects include status, needs_resync, progress,
   last_success, last_exit_code, last_error and last_log. Without the daemon, saved state/config are returned
   with daemon.status `error` and a Turkish explanation.
+- **update --check --json**: `{"schema_version":1,"current":"0.2.0","latest":"0.3.0","update_available":true,"url":"https://github.com/…"}`.
+  Network failure: `{"schema_version":1,"ok":false,"error":{"code":"operation_failed","message":"…"}}`.
+- **update --yes --json**: `{"schema_version":1,"updated":true,"previous":"0.2.0","version":"0.3.0","forced_restart":false}`.
+  `update` never runs without `--yes`. It refuses (exit 1, `invalid_request`) when the recorded source checkout has
+  uncommitted changes (`git status --porcelain`), is detached, or its branch does not track `origin`, and while a sync
+  or an approved initial sync is running (unless `--force-restart`; the initial sync then resumes after the restart).
+  It then runs `git pull --ff-only`, `./install.sh` and `systemctl --user restart drivesync.service drivesync-tray.service`
+  in the source directory recorded by `install.sh` in `lib/drivesync/install-info.json` (`source_dir`, `version`, `installed_at`).
+  A failed step stops the update (`operation_failed`); the notification action runs the same command in a transient user unit.
 - **progress**: `{"schema_version":1,"id":"docs","enabled":true,"initialized":false,"status":"syncing","needs_resync":false,"progress":{…},…}`.
   Includes the saved folder-state fields described above. Live progress is an object from state (or null), with
   available transfer stats such as bytes_done, bytes_total, percent, speed, eta_seconds, files_done, files_total and updated_at; fields can be unknown.
@@ -304,7 +317,15 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
 
 ## Updating and uninstalling
 
-Wait for active transfers (including detached init units) to finish. From the checkout:
+Wait for active transfers (including detached init units) to finish. Preferred, from any shell:
+
+```bash
+drivesync-cli update --check
+drivesync-cli update --yes      # refuses on local changes or a running sync; see the update JSON contract
+drivesync-cli doctor --json
+```
+
+Manual equivalent, from the checkout recorded by `install.sh`:
 
 ```bash
 git pull && ./install.sh

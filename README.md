@@ -227,7 +227,22 @@ Klasör satırını listeden çıkarmak iki taraftaki dosyaları silmez.
 
 ## Güncelleme ve kaldırma
 
-Depo dizininde:
+DriveSync en fazla günde bir kez GitHub'da yeni sürüm olup olmadığına bakar ve yeni sürüm
+çıktığında bildirim gösterir; pencerede de "Yeni sürüm" uyarısı çıkar. Bu denetimi `check_updates`
+ayarıyla kapatabilirsiniz (`drivesync-cli config set check_updates false --json`).
+
+Tek komutla güncelleme:
+
+```bash
+drivesync-cli update --check   # mevcut ve en son sürümü gösterir
+drivesync-cli update --yes     # kaynak klasörü günceller, ./install.sh çalıştırır, servisleri yeniden başlatır
+```
+
+`update --yes` kaynak klasörde kaydedilmemiş değişiklik varsa, dal origin'i izlemiyorsa veya bir eşitleme
+/ ilk eşitleme sürüyorsa durur. Eşitleme sürerken de yeniden başlatmak için `--force-restart` eklenebilir; devam eden
+ilk eşitleme yeniden başlatmadan sonra kaldığı yerden sürer.
+
+Elle güncelleme (depo dizininde):
 
 ```bash
 git pull && ./install.sh

@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 import sys
 
-from . import __version__, app_model, config as configuration, filters, i18n, init_flow, prerequisites, presentation
+from . import __version__, app_model, config as configuration, filters, i18n, init_flow, prerequisites, presentation, updates
 
 # doctor must work before python3-gi and the typelibs have been installed.
 try:
@@ -69,6 +69,11 @@ def parser():
             child.add_argument("--background", action="store_true", help=i18n.BACKGROUND_HELP)
             child.add_argument("--foreground", action="store_true", help=i18n.FOREGROUND_HELP)
         if command in ("status", "doctor", "progress", "add-folder"):
+            child.add_argument("--json", action="store_true", help=i18n.MACHINE_JSON_HELP)
+        if command == "update":
+            child.add_argument("--check", action="store_true", help=i18n.UPDATE_CHECK_HELP)
+            child.add_argument("--yes", action="store_true", help=i18n.YES_HELP)
+            child.add_argument("--force-restart", action="store_true", help=i18n.UPDATE_FORCE_HELP)
             child.add_argument("--json", action="store_true", help=i18n.MACHINE_JSON_HELP)
         if command == "doctor":
             child.add_argument("--offline", action="store_true", help=i18n.OFFLINE_HELP)
@@ -291,7 +296,97 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
 
 SAFE_KEYS = ("root_folder", "language", "poll_interval_minutes", "full_sync_interval_minutes", "debounce_seconds",
              "max_delete_percent", "transfers", "init_transfers", "checkers", "bwlimit",
-             "pause_on_battery", "pause_on_metered", "pause_stops_running", "assumed_upload_bytes_per_second")
+             "pause_on_battery", "pause_on_metered", "pause_stops_running", "assumed_upload_bytes_per_second",
+             "check_updates")
+
+UPDATE_UNITS = ("drivesync.service", "drivesync-tray.service")
+
+
+def update_busy(paths):
+    """Folders whose initial sync or any sync is running; a restart would interrupt them."""
+    items = StateStore(paths).read()["folders"]
+    return [folder_id for folder_id, item in items.items()
+            if item.get("status") == "syncing"
+            or item.get("status") == "init_queued" and item.get("init_request")]
+
+
+def checkout_problem(source):
+    """Why the recorded checkout cannot be updated safely, or None. Only read-only git calls."""
+    if not (source / "install.sh").is_file():
+        return i18n.UPDATE_NOT_CHECKOUT.format(path=source)
+    status = update_git(source, "status", "--porcelain")
+    if status.returncode != 0:
+        return i18n.UPDATE_NOT_CHECKOUT.format(path=source)
+    if status.stdout.strip():
+        return i18n.UPDATE_DIRTY.format(path=source)
+    if update_git(source, "symbolic-ref", "-q", "HEAD").returncode != 0:
+        return i18n.UPDATE_DETACHED
+    upstream = update_git(source, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if upstream.returncode != 0 or not upstream.stdout.strip().startswith("origin/"):
+        return i18n.UPDATE_NO_UPSTREAM
+    return None
+
+
+def update_git(source, *args):
+    return update_run(["git", *args], source)
+
+
+def update_run(command, cwd, timeout=900):
+    # Output is captured: JSON stdout must stay one object, and no prompt may wait on a terminal.
+    return subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False,
+                          env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+
+
+def update_command(paths, args):
+    if args.check:
+        try:
+            latest = updates.fetch_latest()
+        except updates.UpdateError:
+            return failure(args, "operation_failed", i18n.UPDATE_CHECK_FAILED)
+        newer = updates.is_newer(latest["latest"], __version__)
+        if args.json:
+            emit(dict(current=__version__, latest=latest["latest"], update_available=newer, url=latest["url"]))
+        else:
+            print(i18n.UPDATE_CURRENT_LATEST.format(current=__version__, latest=latest["latest"]))
+            print(i18n.UPDATE_AVAILABLE_LINE if newer else i18n.UPDATE_UP_TO_DATE)
+        return 0
+
+    require_yes(args)
+    info = updates.read_install_info()
+    source = Path(info["source_dir"])
+    problem = checkout_problem(source)
+    if problem:
+        raise ValueError(problem)
+    busy = update_busy(paths)
+    if busy and not args.force_restart:
+        raise ValueError(i18n.UPDATE_BUSY)
+    if busy and not args.json:
+        print(i18n.UPDATE_FORCE_WARNING, file=sys.stderr)
+
+    steps = (
+        (["git", "pull", "--ff-only"], source, i18n.UPDATE_PULL_FAILED),
+        ([str(source / "install.sh")], source, i18n.UPDATE_INSTALL_FAILED),
+        (["systemctl", "--user", "restart", *UPDATE_UNITS], source, i18n.UPDATE_RESTART_FAILED),
+    )
+    for command, cwd, message in steps:
+        try:
+            result = update_run(command, cwd, timeout=900 if command[0] != "systemctl" else 120)
+        except (OSError, subprocess.SubprocessError):
+            return failure(args, "operation_failed", message)
+        if result.returncode != 0:
+            tail = "\n".join((result.stderr or result.stdout or "").strip().splitlines()[-8:])
+            if tail and not args.json:
+                print(tail, file=sys.stderr)
+            return failure(args, "operation_failed", message)
+    try:
+        version = updates.read_install_info().get("version")
+    except ValueError:
+        version = None
+    if args.json:
+        emit(dict(updated=True, previous=__version__, version=version, forced_restart=bool(busy)))
+    else:
+        print(i18n.UPDATE_DONE.format(version=version or "?"))
+    return 0
 
 
 def emit(value):
@@ -495,6 +590,8 @@ def main(argv=None):
                     print(i18n.DOCTOR_LINE.format(**check))
                     print(json.dumps(check["details"], ensure_ascii=False))
             return 0 if value["ok"] else 1
+        if args.command == "update":
+            return update_command(paths, args)
         if args.command in ("folder", "add-folder"):
             return folder_command(paths, args)
         if args.command == "config":

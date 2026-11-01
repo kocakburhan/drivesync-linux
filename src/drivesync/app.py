@@ -175,6 +175,8 @@ class DriveSyncApp(Adw.Application, StatusClient):
         self.sync_requested = set()
         self.sync_waiting = False
         self.header_key = None
+        self.update_state = None  # None, "running", "done" or "failed"
+        self.update_error = None
 
     def do_startup(self):
         Adw.Application.do_startup(self)
@@ -211,6 +213,9 @@ class DriveSyncApp(Adw.Application, StatusClient):
                                            default_width=800, default_height=650)
         layout = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         layout.append(Adw.HeaderBar())
+        self.update_banner = Adw.Banner(title="")
+        self.update_banner.connect("button-clicked", lambda _: self.run_update())
+        layout.append(self.update_banner)
         self.banner = Adw.Banner(title="", button_label=i18n.REVIEW)
         self.banner.connect("button-clicked", lambda _: self.open_logs())
         layout.append(self.banner)
@@ -275,6 +280,39 @@ class DriveSyncApp(Adw.Application, StatusClient):
         self.window.connect("close-request", lambda *_: (self.clear_motion(), False)[1])
         self.refresh()
 
+    def refresh_update_banner(self):
+        latest = app_model.update_notice(self.status)
+        if self.update_state == "running":
+            title, button = i18n.UPDATE_RUNNING, None
+        elif self.update_state == "done":
+            title, button = i18n.UPDATE_DONE_WINDOW, None
+        elif self.update_state == "failed":
+            title, button = self.update_error, i18n.UPDATE_BANNER_BUTTON
+        elif latest:
+            title, button = i18n.UPDATE_BANNER.format(version=latest), i18n.UPDATE_BANNER_BUTTON
+        else:
+            self.update_banner.set_revealed(False)
+            return
+        self.update_banner.set_title(title)
+        self.update_banner.set_button_label(button)
+        self.update_banner.set_revealed(True)
+
+    def run_update(self):
+        """`drivesync-cli update --yes` in the background; the daemon restarts during it."""
+        if self.update_state == "running":
+            return
+        self.update_state = "running"
+        self.refresh_update_banner()
+        def finished(success, output, errors):
+            if success:
+                self.update_state = "done"
+            else:
+                lines = [line for line in errors.splitlines() if line.strip()]
+                self.update_state = "failed"
+                self.update_error = i18n.UPDATE_FAILED_WINDOW.format(message=lines[-1] if lines else i18n.SYNC_ERROR)
+            self.refresh_update_banner()
+        self.run_background([self.cli_path(), "update", "--yes"], finished)
+
     def clear_motion(self):
         if self.pulse_timer:
             GLib.source_remove(self.pulse_timer)
@@ -291,6 +329,7 @@ class DriveSyncApp(Adw.Application, StatusClient):
     def refresh(self):
         if not self.window or self.window not in self.get_windows():
             return GLib.SOURCE_CONTINUE
+        self.refresh_update_banner()
         available = self.status is not None
         self.conflicts_button.set_visible(app_model.recent_conflicts_visible(self.status))
         count = len((self.status or {}).get("recent_conflicts", []))

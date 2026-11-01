@@ -30,6 +30,7 @@ class Notifier:
         self.errors = set()
         self.offline_sent = False
         self.send = send or self._desktop
+        self.send_update = None if send else self._desktop_update
         self.notify = None
         # Buttons only work while a GLib main loop runs (the daemon); the CLI exits first.
         self.actions = actions
@@ -38,7 +39,9 @@ class Notifier:
         self._live = {}
         self._next_key = 0
 
-    def _desktop(self, title, body, action=None):
+        self.pending = []
+
+    def _libnotify(self):
         # libnotify probes portals during init; defer that until an actual notification.
         if self.notify is None:
             try:
@@ -49,8 +52,10 @@ class Notifier:
                 self.notify = Notify
             except (ImportError, ValueError):
                 pass
+        return self.notify
 
-        if self.notify:
+    def _desktop(self, title, body, action=None):
+        if self._libnotify():
             try:
                 notification = self.notify.Notification.new(title, body, "dialog-warning-symbolic")
                 if action and self.actions and self._actions_supported():
@@ -86,6 +91,21 @@ class Notifier:
     def _forget(self, _notification, key):
         self._live.pop(key, None)
 
+    def _desktop_update(self, title, body, label, callback):
+        """Notification with an action button when the server supports actions; else plain text."""
+        if not self._libnotify():
+            return
+        try:
+            note = self.notify.Notification.new(title, body, "software-update-available-symbolic")
+            if "actions" in (self.notify.get_server_caps() or []):
+                note.add_action("update", label, lambda *_: callback())
+            # Keep a reference: libnotify delivers the action only while the object lives.
+            self.pending.append(note)
+            note.connect("closed", lambda closed: self.pending.remove(closed) if closed in self.pending else None)
+            note.show()
+        except Exception:
+            logging.getLogger(__name__).debug("Notification unavailable")
+
     def folder(self, folder_id, name, item):
         if item["status"] in ("error", "blocked_delete") or item["needs_resync"]:
             if folder_id not in self.errors:
@@ -109,3 +129,13 @@ class Notifier:
 
     def init_failed(self, name, message):
         self.send(i18n.NOTIFY_ERROR.format(name=name), message, "review")
+
+    def update_available(self, version, url, on_update):
+        """Announce a new release once; the action (when supported) runs ``on_update``."""
+        title = i18n.UPDATE_TITLE.format(version=version)
+        body = i18n.UPDATE_BODY.format(url=url)
+        if self.send_update is None:
+            # Injected senders (tests, GUI-less callers) get plain text only.
+            self.send(title, body)
+        else:
+            self.send_update(title, body, i18n.UPDATE_ACTION, on_update)

@@ -25,7 +25,7 @@ def defaults():
     return {"version": 1, "rclone_path": str(Path(binary).resolve()), "remote": "gdrive:",
             "root_folder": "Linux-PC", "language": "auto", "poll_interval_minutes": 5,
             "full_sync_interval_minutes": 60, "debounce_seconds": 10,
-            "max_delete_percent": 25, "max_monitors": 20000, "paused": False,
+            "max_delete_percent": 25, "max_monitors": 20000, "paused": False, "check_updates": True,
             "assumed_upload_bytes_per_second": 1048576,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "bwlimit": "", "pause_on_battery": False, "pause_on_metered": True,
@@ -101,7 +101,7 @@ def validate(data):
         invalid("init_extra_flags")
     if not valid_bwlimit(result["bwlimit"]):
         invalid("bwlimit")
-    for field in ("paused", "pause_on_battery", "pause_on_metered", "pause_stops_running"):
+    for field in ("paused", "pause_on_battery", "pause_on_metered", "pause_stops_running", "check_updates"):
         if type(result[field]) is not bool:
             invalid(field)
     if not isinstance(result["excludes"], list):
