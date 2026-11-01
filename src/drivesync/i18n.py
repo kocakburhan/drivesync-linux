@@ -545,8 +545,8 @@ _STRINGS = {
         '{name} eklendi. Önce değişiklik planını inceleyebilirsiniz.',
         '{name} was added. You can review the planned changes first.'),
     "INIT_LAUNCH_FAILED": (
-        'Eşitleme başlatılamadı. systemd kullanıcı oturumunu ve kayıtları kontrol edin.',
-        'Sync could not be started. Check the systemd user session and the logs.'),
+        'Eşitleme başlatılamadı. Arka plan servisinin çalıştığını ve kayıtları kontrol edin.',
+        'Sync could not be started. Check that the background service is running and the logs.'),
     "INIT_PLAN_INVALID": (
         'Eşitleme planı okunamadı; işlem başlatılmadı.',
         'The sync plan could not be read; the operation was not started.'),
@@ -569,8 +569,8 @@ _STRINGS = {
         'Uzak erişim denetimini atla',
         'Skip the remote access check'),
     "BACKGROUND_HELP": (
-        'İlk eşitlemeyi ayrı systemd kullanıcı işi olarak başlat',
-        'Start the initial sync as a separate systemd user job'),
+        'Servise ilet (varsayılan; --yes ile aynı davranış)',
+        'Hand it to the service (default; same as --yes)'),
     "YES_REQUIRED": (
         'Bu işlem açık onay gerektirir. Onaydan sonra --yes ile tekrar çalıştırın.',
         'This operation requires explicit approval. After approval, run it again with --yes.'),
@@ -612,6 +612,45 @@ _STRINGS = {
     "RATE": ("{value} {unit}/sn", "{value} {unit}/s"),
     "FILES_PROGRESS": ("{done}/{total} dosya", "{done}/{total} files"),
     "TOTAL_PROGRESS": ("Toplam: {percent}", "Total: {percent}"),
+    "REMOTE_CHANGE_CHECK_FAILED": (
+        'Drive değişiklik denetimi başarısız oldu; tam eşitlemeye dönüldü.',
+        'Remote change check failed; falling back to a full sync.'),
+    "TRAY_INIT_QUEUED": (
+        'İlk eşitleme sırada: {name}',
+        'Initial sync queued: {name}'),
+    "TRAY_INIT_APPROVAL": (
+        'İlk eşitleme yeniden onay bekliyor: {name}',
+        'Initial sync is waiting for approval again: {name}'),
+    "INIT_REAPPROVE": (
+        'Yeniden onayla',
+        'Approve again'),
+    "INIT_NEEDS_APPROVAL_NOTIFY": (
+        'İlk eşitleme yeniden onay bekliyor: {name}',
+        'Initial sync is waiting for approval again: {name}'),
+    "INIT_NEEDS_APPROVAL": (
+        'İlk eşitleme yeniden onay bekliyor: plan onaylandığınızdan beri değişti (yeni silme, daha fazla indirme veya ayarlar). Planı yeniden inceleyip onaylayın.',
+        'Initial sync is waiting for approval again: the plan changed since you approved it (new deletions, more downloads or settings). Review the plan again and approve it.'),
+    "INIT_CONFIG_CHANGED": (
+        'İlk eşitleme yeniden onay bekliyor: klasör yolları veya filtreler onaydan sonra değişti.',
+        'Initial sync is waiting for approval again: folder paths or filters changed after approval.'),
+    "INIT_GAVE_UP": (
+        'İlk eşitleme tekrar tekrar başarısız oldu; kayıt dosyasını inceleyip yeniden başlatın.',
+        'Initial sync failed repeatedly; check the log file and start it again.'),
+    "INIT_WAITING": (
+        'İlk eşitleme sırada; bağlantı veya hata nedeniyle yeniden denenecek.',
+        'Initial sync is queued and will be retried after a connection problem or an error.'),
+    "INIT_NO_DAEMON": (
+        'Arka plan servisi çalışmıyor; ilk eşitleme sıraya alınamadı. Servisi başlatın (systemctl --user start drivesync.service) veya --foreground ile bu pencerede çalıştırın.',
+        'The background service is not running; the initial sync could not be queued. Start the service (systemctl --user start drivesync.service) or run it in this window with --foreground.'),
+    "INIT_SUBMITTED": (
+        'İlk eşitleme servise iletildi; bilgisayar yeniden başlasa da devam edecek: {id}',
+        'Initial sync was handed to the service; it will continue even after a reboot: {id}'),
+    "INIT_SUBMIT_REFUSED": (
+        'Servis ilk eşitlemeyi kabul etmedi; durumu ve duraklatma ayarını inceleyin.',
+        'The service did not accept the initial sync; check the status and the pause setting.'),
+    "FOREGROUND_HELP": (
+        'Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)',
+        'Run in the foreground in this process instead of the service (lost on restart)'),
 }
 
 HELP = _Localized({
@@ -699,6 +738,12 @@ STATUSES = _Localized({
     'needs_resync': (
         'Yeniden eşitleme gerekiyor',
         'Resync required'),
+    'init_queued': (
+        'İlk eşitleme sırada (yeniden başlatma sonrası devam edecek)',
+        'Initial sync queued (will resume after restart)'),
+    'needs_approval': (
+        'Yeniden onay gerekiyor',
+        'Needs approval again'),
 })
 
 DOCTOR_MESSAGES = _Localized({
@@ -790,28 +835,3 @@ DOCTOR_MESSAGES = _Localized({
 # is found before ``__getattr__`` runs and is used as-is for both languages, so Turkish-only text
 # keeps working until an English translation is moved into ``_STRINGS``.  Mapping items assigned
 # as plain str (``STATUSES["x"] = "..."``) behave the same way.
-
-
-# --- remote change detection ---
-REMOTE_CHANGE_CHECK_FAILED = "Drive değişiklik denetimi başarısız oldu; tam eşitlemeye dönüldü."
-
-
-# --- init resume ---
-STATUSES["init_queued"] = "İlk eşitleme sırada (yeniden başlatma sonrası devam edecek)"
-STATUSES["needs_approval"] = "Yeniden onay gerekiyor"
-TRAY_INIT_QUEUED = "İlk eşitleme sırada: {name}"
-TRAY_INIT_APPROVAL = "İlk eşitleme yeniden onay bekliyor: {name}"
-INIT_REAPPROVE = "Yeniden onayla"
-INIT_NEEDS_APPROVAL_NOTIFY = "İlk eşitleme yeniden onay bekliyor: {name}"
-INIT_NEEDS_APPROVAL = ("İlk eşitleme yeniden onay bekliyor: plan onaylandığınızdan beri değişti "
-                       "(yeni silme, daha fazla indirme veya ayarlar). Planı yeniden inceleyip onaylayın.")
-INIT_CONFIG_CHANGED = "İlk eşitleme yeniden onay bekliyor: klasör yolları veya filtreler onaydan sonra değişti."
-INIT_GAVE_UP = "İlk eşitleme tekrar tekrar başarısız oldu; kayıt dosyasını inceleyip yeniden başlatın."
-INIT_WAITING = "İlk eşitleme sırada; bağlantı veya hata nedeniyle yeniden denenecek."
-INIT_NO_DAEMON = ("Arka plan servisi çalışmıyor; ilk eşitleme sıraya alınamadı. "
-                  "Servisi başlatın (systemctl --user start drivesync.service) veya --foreground ile bu pencerede çalıştırın.")
-INIT_SUBMITTED = "İlk eşitleme servise iletildi; bilgisayar yeniden başlasa da devam edecek: {id}"
-INIT_SUBMIT_REFUSED = "Servis ilk eşitlemeyi kabul etmedi; durumu ve duraklatma ayarını inceleyin."
-FOREGROUND_HELP = "Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)"
-BACKGROUND_HELP = "Servise ilet (varsayılan; --yes ile aynı davranış)"
-INIT_LAUNCH_FAILED = "Eşitleme başlatılamadı. Arka plan servisinin çalıştığını ve kayıtları kontrol edin."

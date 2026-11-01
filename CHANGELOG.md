@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-11-01
+
+- Initial sync and resync now run in the background daemon and survive reboot or logout. The approval is stored; after a restart a fresh preview runs and the sync resumes only if no new deletions or downloads appear, otherwise approval is requested again. Retries are bounded.
+- Cheap Drive change detection with `rclone backend query`: full bisync runs only on remote changes, plus a safety-net full sync every `full_sync_interval_minutes` (default 60).
+- English user interface with automatic language selection and the `language` setting (auto/tr/en).
+- README screenshots generated from demo data (`tools/make_screenshots.py`).
+- New D-Bus method `StartInit`.
+
 ## 0.1.0 — 2026-11-01
 
 - Selected-folder two-way Google Drive sync with rclone bisync and newer-wins conflicts.
