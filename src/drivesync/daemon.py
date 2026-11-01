@@ -6,12 +6,12 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import signal
+import threading
 import time
-from datetime import datetime, timedelta, timezone
 
 from gi.repository import Gio, GLib
 
-from . import config as configuration, filters, i18n, init_flow, rclone, prerequisites, remote_watch
+from . import config as configuration, filters, i18n, init_flow, rclone, prerequisites, remote_watch, updates
 from .dbus_service import Service
 from .notify import Notifier
 from .paths import Paths
@@ -24,6 +24,8 @@ INIT_BACKOFF = (60, 300, 900, 3600)
 INIT_MAX_ATTEMPTS = len(INIT_BACKOFF) + 1
 INIT_OFFLINE_WAIT = 60
 INIT_SCAN_SECONDS = 5
+# The throttle decides whether a release check is due; this only limits how often we ask.
+UPDATE_PROBE_SECONDS = 60
 
 
 class Daemon:
@@ -56,6 +58,9 @@ class Daemon:
         self.checker = remote_watch.RemoteChecker(paths, lambda: self.config)
         self.remote_warned = False
         self.watchers = FolderWatchers(self.enqueue, GLib.timeout_add, GLib.source_remove)
+        self.updates = updates.UpdateChecker(self.store, self.notifier.update_available)
+        self.update_thread = None
+        self.next_update_probe = 0
 
     def _changed(self):
         if self.service:
@@ -265,6 +270,9 @@ class Daemon:
             self.reload_config()
         if timestamp >= self.next_init_scan:
             self._scan_inits()
+        if timestamp >= self.next_update_probe:
+            self.next_update_probe = timestamp + UPDATE_PROBE_SECONDS
+            self._check_updates()
         if timestamp >= self.next_poll:
             self.next_poll = timestamp + self.config["poll_interval_minutes"] * 60
             if not self.pending_reload:
@@ -273,6 +281,33 @@ class Daemon:
             self.notifier.offline(timestamp - self.offline_since)
         self._pump()
         return GLib.SOURCE_CONTINUE
+
+    def _check_updates(self):
+        """At most one release lookup a day; the request runs in a worker thread."""
+        if self.update_thread is not None or self.stopping:
+            return
+        try:
+            if not self.updates.due(self.config["check_updates"]):
+                return
+            self.updates.begin()
+        except StateError:
+            return  # A damaged state file is reported elsewhere; never stop the tick for it.
+        self.update_thread = threading.Thread(target=self._fetch_update, name="drivesync-update-check",
+                                              daemon=True)
+        self.update_thread.start()
+
+    def _fetch_update(self):
+        # Worker thread: network only. Everything else happens on the GLib main loop.
+        try:
+            outcome = self.updates.fetch()
+        except Exception as error:
+            outcome = error
+        GLib.idle_add(self._update_fetched, outcome)
+
+    def _update_fetched(self, outcome):
+        self.update_thread = None
+        self.updates.finish(outcome)
+        return GLib.SOURCE_REMOVE
 
     def _poll(self):
         """Full bisync only when due; otherwise ask Drive cheaply whether anything changed."""

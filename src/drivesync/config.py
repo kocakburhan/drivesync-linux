@@ -25,7 +25,7 @@ def defaults():
     return {"version": 1, "rclone_path": str(Path(binary).resolve()), "remote": "gdrive:",
             "root_folder": "Linux-PC", "language": "auto", "poll_interval_minutes": 5,
             "full_sync_interval_minutes": 60, "debounce_seconds": 10,
-            "max_delete_percent": 25, "max_monitors": 20000, "paused": False,
+            "max_delete_percent": 25, "max_monitors": 20000, "paused": False, "check_updates": True,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
             "excludes": list(DEFAULT_EXCLUDES), "folders": []}
@@ -77,6 +77,8 @@ def validate(data):
         invalid("init_extra_flags")
     if type(result["paused"]) is not bool:
         invalid("paused")
+    if type(result["check_updates"]) is not bool:
+        invalid("check_updates")
     if not isinstance(result["excludes"], list):
         invalid("excludes")
     for pattern in result["excludes"]:

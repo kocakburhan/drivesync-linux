@@ -112,6 +112,16 @@ with edit_lock(paths):
         # Otherwise an existing /usr/bin/rclone setting could stay too old.
         settings["rclone_path"] = str(home / ".local/bin/rclone")
         save(paths, settings)
+
+# Where this copy came from, for `drivesync-cli update`. Written after the files, never read here.
+import re
+from datetime import datetime, timezone
+from drivesync.paths import write_json
+version = re.search(r'^__version__ = "([^"]+)"', (source / "src/drivesync/__init__.py").read_text(encoding="utf-8"),
+                    re.MULTILINE).group(1)
+write_json(prefix / "lib/drivesync/install-info.json", dict(
+    source_dir=str(source), version=version,
+    installed_at=datetime.now(timezone.utc).isoformat(timespec="seconds")))
 PY
 if [[ $no_enable = false ]]; then
     systemctl --user daemon-reload

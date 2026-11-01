@@ -191,6 +191,8 @@ drivesync-cli pause
 drivesync-cli resume
 drivesync-cli logs [ID]
 drivesync-cli config-path
+drivesync-cli update [--check] [--json]
+drivesync-cli update --yes [--force-restart] [--json]
 drivesync-cli --version
 ```
 
@@ -205,8 +207,10 @@ daemon, tray, CLI and Nautilus; `auto` follows `DRIVESYNC_LANG`, then `LANGUAGE`
 `root_folder` (one safe path component, no `/`, `\`, `:`, control characters, `.` or `..`),
 `poll_interval_minutes` (finite number > 0), `full_sync_interval_minutes` (finite number > 0, default 60:
 safety-net full bisync interval; between full syncs a cheap Drive change check decides), `debounce_seconds` (finite number >= 0),
-`max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1).
-Numbers use JSON number syntax; booleans/null are rejected. Excludes must be nonempty strings without surrounding
+`max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1),
+`check_updates` (`true` or `false`, default `true`: the daemon asks GitHub for the latest release at most once a day,
+without credentials, and only announces it; `false` turns the check off).
+Numbers use JSON number syntax; booleans/null are rejected, except that `check_updates` takes `true` or `false`. Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
 Changing root/filters/guard invalidates previews; initialized folders can need a fresh approved resync.
 
@@ -239,6 +243,15 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
   The daemon object includes status and last_error; folder objects include status, needs_resync, progress,
   last_success, last_exit_code, last_error and last_log. Without the daemon, saved state/config are returned
   with daemon.status `error` and a Turkish explanation.
+- **update --check --json**: `{"schema_version":1,"current":"0.2.0","latest":"0.3.0","update_available":true,"url":"https://github.com/…"}`.
+  Network failure: `{"schema_version":1,"ok":false,"error":{"code":"operation_failed","message":"…"}}`.
+- **update --yes --json**: `{"schema_version":1,"updated":true,"previous":"0.2.0","version":"0.3.0","forced_restart":false}`.
+  `update` never runs without `--yes`. It refuses (exit 1, `invalid_request`) when the recorded source checkout has
+  uncommitted changes (`git status --porcelain`), is detached, or its branch does not track `origin`, and while a sync
+  or an approved initial sync is running (unless `--force-restart`; the initial sync then resumes after the restart).
+  It then runs `git pull --ff-only`, `./install.sh` and `systemctl --user restart drivesync.service drivesync-tray.service`
+  in the source directory recorded by `install.sh` in `lib/drivesync/install-info.json` (`source_dir`, `version`, `installed_at`).
+  A failed step stops the update (`operation_failed`); the notification action runs the same command in a transient user unit.
 - **progress**: `{"schema_version":1,"id":"docs","enabled":true,"initialized":false,"status":"syncing","needs_resync":false,"progress":{…},…}`.
   Includes the saved folder-state fields described above. Live progress is an object from state (or null), with
   available transfer stats such as bytes_done, bytes_total, percent, speed, eta_seconds, files_done, files_total and updated_at; fields can be unknown.
@@ -277,7 +290,15 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
 
 ## Updating and uninstalling
 
-Wait for active transfers (including detached init units) to finish. From the checkout:
+Wait for active transfers (including detached init units) to finish. Preferred, from any shell:
+
+```bash
+drivesync-cli update --check
+drivesync-cli update --yes      # refuses on local changes or a running sync; see the update JSON contract
+drivesync-cli doctor --json
+```
+
+Manual equivalent, from the checkout recorded by `install.sh`:
 
 ```bash
 git pull && ./install.sh

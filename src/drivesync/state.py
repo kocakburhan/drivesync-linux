@@ -86,10 +86,16 @@ def unlocked_folders(paths, folder_ids, *, owned_folder_id=None):
         yield available
 
 
+def update_state():
+    # latest/url come from the last release check; checked_at throttles checks; notified is the
+    # last version announced, so each new release produces one notification.
+    return {"latest": None, "url": None, "checked_at": None, "notified": None}
+
+
 def empty_state():
     return {"daemon": {"status": "idle", "current_folder": None, "pid": None,
                        "started_at": None, "last_error": None}, "filters_sha256": None,
-            "folders": {}, "recent_conflicts": []}
+            "folders": {}, "recent_conflicts": [], "update": update_state()}
 
 
 def folder_state():
@@ -118,6 +124,10 @@ class StateStore:
                 raise ValueError()
             value["daemon"].setdefault("last_error", None)
             value.setdefault("recent_conflicts", [])
+            if not isinstance(value.get("update"), dict):
+                value["update"] = update_state()
+            for key, default in update_state().items():
+                value["update"].setdefault(key, default)
             if not isinstance(value["recent_conflicts"], list):
                 raise ValueError()
             value["recent_conflicts"] = value["recent_conflicts"][-100:]
