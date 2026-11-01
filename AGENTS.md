@@ -170,6 +170,9 @@ drivesync-cli folder add LOCAL_PATH [--remote-name NAME] [--json]
 drivesync-cli folder remove ID --yes [--json]
 drivesync-cli folder enable ID [--json]
 drivesync-cli folder disable ID [--json]
+drivesync-cli folder excludes ID list [--json]
+drivesync-cli folder excludes ID add PATTERN [--json]
+drivesync-cli folder excludes ID remove PATTERN [--json]
 drivesync-cli config get KEY [--json]
 drivesync-cli config set KEY VALUE [--json]
 drivesync-cli config excludes list [--json]
@@ -215,6 +218,10 @@ numbers with optional `b|k|M|G|T|P` (+`i`/`B`); no resync needed; a running tran
 `auto_paused` (`status` JSON has `auto_pause: "metered"|"battery"|null`, separate from the manual `paused`).
 Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys take `true`/`false`). Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
+Per-folder excludes (subcommands `drivesync-cli folder excludes list`, `drivesync-cli folder excludes add` and
+`drivesync-cli folder excludes remove`, each taking the folder ID first as in the command list above; stored as optional `"excludes"` in the folder entry) use the same
+pattern rules and ADD to the global list; the folder's filter file is global + folder patterns. Changing a folder's
+excludes needs a resync of that folder only; changing the global list affects every initialized folder.
 Changing root/filters/guard invalidates previews; initialized folders can need a fresh approved resync.
 
 JSON stdout is one object, never mixed with progress prose. Every successful JSON response has
@@ -236,7 +243,9 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
 - **folder list**: `{"schema_version":1,"folders":[{"id":"docs","local":"/path","remote_name":"Documents","enabled":true,"initialized":false}]}`.
   Add/enable/disable return `{"schema_version":1,"folder":{…}}`; remove returns `{"schema_version":1,"id":"docs","removed":true}`.
 - **config get/set**: `{"schema_version":1,"key":"transfers","value":4}`;
-  **config excludes list/add/remove**: `{"schema_version":1,"patterns":["*.tmp"]}`.
+  **config excludes list/add/remove**: `{"schema_version":1,"patterns":["*.tmp"]}`;
+  **folder excludes ID list/add/remove**: `{"schema_version":1,"id":"docs","patterns":["*.psd"],"effective":["…global…","*.psd"]}`
+  (`patterns` = the folder's own, `effective` = global + own).
 - **init/resync dry-run**: `{"schema_version":1,"to_remote":1,"to_local":0,"deletes":0,"unknown":0,"actions":[]}`.
   Counts are nonnegative integers; actions are at most 50 strings. Failure never authorizes a real run.
 - **init/resync --yes (--background)**: `{"schema_version":1,"id":"docs","kind":"init","queued":true}`;

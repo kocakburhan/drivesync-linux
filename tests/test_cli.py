@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -214,3 +215,21 @@ class CliTests(IsolatedTest):
         self.assertEqual(item["status"], "error")
         self.assertTrue(item["needs_resync"])
         self.assertIsNone(item["dry_run_ok_at"])
+
+    def test_folder_excludes_commands(self):
+        code, out, _ = self.cli("folder", "excludes", "docs", "list", "--json")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["patterns"], [])
+        code, out, _ = self.cli("folder", "excludes", "docs", "add", "*.psd", "--json")
+        value = json.loads(out)
+        self.assertEqual(value["patterns"], ["*.psd"])
+        self.assertEqual(value["effective"], self.config["excludes"] + ["*.psd"])
+        self.cli("folder", "excludes", "docs", "add", "*.psd")
+        self.assertEqual(config.load(self.paths)["folders"][0]["excludes"], ["*.psd"])
+        code, out, _ = self.cli("folder", "excludes", "docs", "remove", "*.psd", "--json")
+        self.assertEqual(json.loads(out)["patterns"], [])
+        self.assertNotIn("excludes", config.load(self.paths)["folders"][0])
+        code, _, err = self.cli("folder", "excludes", "docs", "remove", "*.psd")
+        self.assertNotEqual(code, 0)
+        code, _, _ = self.cli("folder", "excludes", "missing", "list")
+        self.assertNotEqual(code, 0)

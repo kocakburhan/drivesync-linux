@@ -68,7 +68,7 @@ class IsolatedTest(unittest.TestCase):
 
     def prepare(self, initialized=False):
         with execution_lock(self.paths):
-            digest = filters.prepare(self.paths, self.config, self.store)
+            digest = filters.prepare(self.paths, self.config, self.store)["docs"]
         if initialized:
             self.config["folders"][0]["initialized"] = True
             config.save(self.paths, self.config)

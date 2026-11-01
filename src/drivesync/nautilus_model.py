@@ -21,6 +21,12 @@ def excluded(relative, is_directory, excludes):
             or any(_watch_pattern(pattern.strip("/")) is None for pattern in excludes))
 
 
+def folder_excludes(config, folder):
+    result = list(config.get("excludes", []))
+    result += [p for p in folder.get("excludes", []) if p not in result]
+    return result
+
+
 def folder_for_path(path, folders):
     """Lexical containment, without disk I/O; prefer the most specific root."""
     path = Path(os.path.abspath(path))
@@ -38,7 +44,7 @@ def folder_for_path(path, folders):
 def emblem_for(path, is_directory, mtime, config, state):
     folder, relative = folder_for_path(path, config.get("folders", []))
     if (not folder or not folder.get("initialized") or not folder.get("enabled", True)
-            or excluded(relative, is_directory, config.get("excludes", []))):
+            or excluded(relative, is_directory, folder_excludes(config, folder))):
         return None
     item = state.get("folders", {}).get(folder["id"], {})
     if item.get("needs_resync") or item.get("status") in ("error", "blocked_delete", "needs_resync"):

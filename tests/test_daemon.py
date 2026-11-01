@@ -139,15 +139,15 @@ class DaemonTests(IsolatedTest):
         self.settings(bisync={"sleep": 0.2})
         daemon.sync_now("docs")
         daemon._pump()
-        old_filters = self.paths.filters.read_text()
+        old_filters = self.paths.filters_for("docs").read_text()
         self.config["excludes"].append("*.pending")
         config.save(self.paths, self.config)
         self.assertTrue(daemon.reload_config())
         self.assertTrue(daemon.pending_reload)
-        self.assertEqual(self.paths.filters.read_text(), old_filters)
+        self.assertEqual(self.paths.filters_for("docs").read_text(), old_filters)
         drain_until(lambda: daemon.child is None)
         daemon._tick()
-        self.assertIn("- *.pending", self.paths.filters.read_text())
+        self.assertIn("- *.pending", self.paths.filters_for("docs").read_text())
         self.assertTrue(daemon.store.read()["folders"]["docs"]["needs_resync"])
 
     def test_removed_queued_folder_is_discarded(self):

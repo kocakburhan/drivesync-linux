@@ -177,7 +177,8 @@ maksimum silme oranı (%25), bant genişliği sınırı (`bwlimit`: boş = sın�
 "Kotalı ağda otomatik duraklat" (varsayılan açık) ve "Pilde otomatik duraklat" (varsayılan kapalı) anahtarları (otomatik duraklamada yeni eşitleme başlamaz, çalışan aktarım biter; koşul kalkınca kendiliğinden devam eder; elle duraklatmadan bağımsızdır), hariç tutmalar. Hariç tutmalar değişince başlatılmış klasörlerde
 ilk fırsatta **Yeniden eşitle** gerekir; otomatik eşitleme güvenlik için durur.
 Ajanlar ayarlar için `drivesync-cli config get|set`, hariç tutmalar için `config excludes list|add|remove`
-kullanmalıdır. İzin verilen anahtarlar ve JSON çıktıları: [AGENTS.md](AGENTS.md). Gelişmiş yapılandırma: [şema](docs/SPEC.md).
+kullanmalıdır. Bir klasöre özel hariç tutmalar (genel listeye eklenir) klasör satırındaki **Hariç tutmalar…** menüsünden ya da
+`drivesync-cli folder excludes <id> list|add|remove` ile düzenlenir; yalnızca o klasör için **Yeniden eşitle** gerekir. İzin verilen anahtarlar ve JSON çıktıları: [AGENTS.md](AGENTS.md). Gelişmiş yapılandırma: [şema](docs/SPEC.md).
 Klasör satırını listeden çıkarmak iki taraftaki dosyaları silmez.
 
 ## Güvenlik ve veri

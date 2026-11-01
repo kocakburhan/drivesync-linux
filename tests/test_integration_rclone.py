@@ -47,8 +47,14 @@ class RealRcloneTests(unittest.TestCase):
         self.remote = Path(config.remote_path(self.config, self.folder))
         for directory in (self.local, self.remote):
             directory.mkdir(parents=True)
-        self.paths.filters.write_text(filters.render(self.config["excludes"]), encoding="utf-8")
+        self.write_filters()
         self.logs = []
+
+    def write_filters(self, excludes=None):
+        target = self.paths.filters_for(self.folder["id"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(filters.render(self.config["excludes"] if excludes is None else excludes),
+                          encoding="utf-8")
 
     def write(self, side, name, content, *, mtime=None):
         path = side / name
@@ -153,7 +159,7 @@ class RealRcloneTests(unittest.TestCase):
 
     def test_excludes_at_any_depth_and_marker_is_included(self):
         self.config["excludes"].append(".drivesync*")
-        self.paths.filters.write_text(filters.render(self.config["excludes"]), encoding="utf-8")
+        self.write_filters()
         excluded = ("node_modules/{prefix}.txt", "deep/node_modules/{prefix}.txt",
                     ".git/{prefix}", "deep/.git/{prefix}", "{prefix}.tmp", "deep/{prefix}.tmp")
         for side in (self.local, self.remote):
@@ -224,3 +230,53 @@ class RealRcloneTests(unittest.TestCase):
         self.assertEqual((remote / "recording.txt").read_text(), "local recording")
         self.assertTrue((remote / rclone.CHECK_FILENAME).is_file())
         self.assertTrue(config.load(paths)["folders"][0]["initialized"])
+
+    def bisync_with_filters(self, filters_path, **kwargs):
+        log = rclone.new_log(self.paths, self.folder["id"])
+        command = rclone.bisync_command(self.paths, self.config, self.folder, log, **kwargs)
+        command[command.index("--filters-file") + 1] = str(filters_path)
+        process = subprocess.run(command, env=self.env, cwd=self.root,
+                                 capture_output=True, text=True, timeout=30)
+        return process.returncode, log.read_text(encoding="utf-8") + process.stdout + process.stderr
+
+    def test_moving_filters_to_per_folder_path_needs_resync_unless_hash_is_migrated(self):
+        # Finding: rclone bisync stores the filter hash in "<filters file>.md5" next to
+        # the file, keyed by its path. Only moving the identical rules to
+        # filters/<id>.txt therefore demands --resync; filters.prepare copies the old
+        # sidecar so migrated installs continue without one.
+        from drivesync.state import StateStore
+        legacy = self.paths.data_dir / "filters.txt"
+        legacy.write_text(filters.render(self.config["excludes"]), encoding="utf-8")
+        self.write(self.local, "a.txt", "a")
+        marker = rclone.create_check(self.folder)
+        self.write(self.remote, rclone.CHECK_FILENAME, marker.read_text(encoding="utf-8"))
+        code, output = self.bisync_with_filters(legacy, resync=True)
+        self.assertEqual(code, 0, output)
+        self.first_md5 = legacy.with_name("filters.txt.md5").read_text(encoding="utf-8")
+        self.folder["initialized"] = True
+        self.write(self.local, "b.txt", "b")
+        target = self.paths.filters_for(self.folder["id"])
+        self.write_filters()  # new path, same rules, no sidecar yet
+        code, output = self.bisync_with_filters(target)
+        self.assertEqual(code, 7, output)
+        self.assertIn("md5 hash not found", output)
+        self.write_filters_cleanup(target)
+        # Migration through prepare() copies the sidecar.
+        value = dict(self.config, folders=[self.folder])
+        filters.prepare(self.paths, value, StateStore(self.paths))
+        self.assertFalse(legacy.exists())
+        code, output = self.bisync_with_filters(target)
+        self.assertEqual(code, 0, output)
+        self.assertEqual((self.remote / "b.txt").read_text(), "b")
+        # Different rules (a folder pattern) do demand a resync, as designed.
+        value["folders"][0]["excludes"] = ["*.private"]
+        filters.prepare(self.paths, value, StateStore(self.paths))
+        code, output = self.bisync_with_filters(target)
+        self.assertEqual(code, 7, output)
+
+    def write_filters_cleanup(self, target):
+        # Reset to the pre-migration layout: legacy file and sidecar, no new sidecar.
+        legacy = self.paths.data_dir / "filters.txt"
+        legacy.write_text(filters.render(self.config["excludes"]), encoding="utf-8")
+        legacy.with_name("filters.txt.md5").write_text(self.first_md5, encoding="utf-8")
+        target.with_name(target.name + ".md5").unlink(missing_ok=True)

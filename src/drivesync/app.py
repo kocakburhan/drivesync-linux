@@ -79,6 +79,7 @@ class FolderWidget(Adw.PreferencesRow):
                 (i18n.OPEN_FOLDER, lambda: application.open_uri(Path(os.path.expanduser(self.folder["local"])).as_uri())),
                 (i18n.OPEN_DRIVE, lambda: application.open_uri(DRIVE_URL)),
                 (i18n.OPEN_LOGS, lambda: application.open_logs(self.state.get("last_log"))),
+                (i18n.FOLDER_EXCLUDES, lambda: application.folder_excludes(self.folder)),
                 (i18n.REMOVE_FOLDER, lambda: application.confirm_remove(self.folder))):
             choices.append(button(label, lambda callback=callback: self.activate_choice(popover, callback)))
         popover.set_child(margins(choices, 6))
@@ -647,6 +648,48 @@ class DriveSyncApp(Adw.Application, StatusClient):
         dialog.connect("response", lambda _, response: self.edit_config(
             lambda data: app_model.remove_folder(data, folder["id"])) if response == "remove" else None)
         dialog.present()
+
+    def folder_excludes(self, folder):
+        try:
+            data = config.load(self.paths)
+            current = config.folder_by_id(data, folder["id"])
+        except (config.ConfigError, OSError) as error:
+            self.request_failed(str(error))
+            return None
+        window = Adw.PreferencesWindow(transient_for=self.window, modal=True,
+                                       title=i18n.FOLDER_EXCLUDES_TITLE.format(name=current["remote_name"]),
+                                       default_width=600, default_height=500)
+        page = Adw.PreferencesPage()
+        rules = Adw.PreferencesGroup(
+            title=i18n.EXCLUDES,
+            description=i18n.FOLDER_EXCLUDES_NOTE + "\n" + i18n.EXCLUDES_WARNING)
+        page.add(rules)
+        entries = []
+        def add_rule(text=""):
+            row = Adw.ActionRow(title=i18n.EXCLUDE_PATTERN)
+            entry = Gtk.Entry(text=text, hexpand=True, valign=Gtk.Align.CENTER)
+            row.add_suffix(entry)
+            def remove():
+                entries.remove(entry)
+                rules.remove(row)
+            remove_button = button(i18n.REMOVE_FOLDER, remove)
+            remove_button.set_valign(Gtk.Align.CENTER)
+            row.add_suffix(remove_button)
+            entries.append(entry)
+            rules.add(row)
+        for pattern in current.get("excludes", []):
+            add_rule(pattern)
+        rules.set_header_suffix(button(i18n.ADD_EXCLUDE, add_rule))
+        save_group = Adw.PreferencesGroup()
+        def save():
+            if self.edit_config(lambda latest: app_model.folder_excludes_edit(
+                    latest, folder["id"], [entry.get_text() for entry in entries])):
+                window.close()
+        save_group.add(button(i18n.SAVE, save))
+        page.add(save_group)
+        window.add(page)
+        window.present()
+        return window, entries, add_rule, save
 
     def preferences(self):
         try:
