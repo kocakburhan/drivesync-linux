@@ -64,20 +64,40 @@ def format_number(value, decimals=0):
 turkish_number = format_number  # backwards-compatible alias
 
 
-def eta_text(seconds):
-    if seconds is None:
-        return ""
+def duration_text(seconds):
+    """Language-aware duration such as "15 sa 20 dk" or "45 sn"."""
     minutes = max(0, int(seconds)) // 60
     hours, minutes = divmod(minutes, 60)
     if hours:
         duration = i18n.DURATION_H.format(value=format_number(hours))
         if minutes:
             duration += " " + i18n.DURATION_M.format(value=minutes)
-    elif minutes:
-        duration = i18n.DURATION_M.format(value=minutes)
-    else:
-        duration = i18n.DURATION_S.format(value=int(max(0, seconds)))
-    return i18n.ETA_LEFT.format(duration=duration)
+        return duration
+    if minutes:
+        return i18n.DURATION_M.format(value=minutes)
+    return i18n.DURATION_S.format(value=int(max(0, seconds)))
+
+
+def size_text(value):
+    """Binary byte amount such as "23,4 GB" (plain bytes stay whole numbers)."""
+    units = ("B", "KB", "MB", "GB", "TB")
+    amount, power = float(value), 0
+    while amount >= 1024 and power < 4:
+        amount /= 1024
+        power += 1
+    return f"{format_number(amount, 1 if power else 0)} {units[power]}"
+
+
+def size_summary(size):
+    """One line for an upload estimate: size, file count and approximate duration."""
+    return i18n.SIZE_SUMMARY.format(size=size_text(size["bytes"]), files=format_number(size["files"]),
+                                    duration=duration_text(size["estimated_seconds"]))
+
+
+def eta_text(seconds):
+    if seconds is None:
+        return ""
+    return i18n.ETA_LEFT.format(duration=duration_text(seconds))
 
 
 def progress_text(progress, *, compact=False):

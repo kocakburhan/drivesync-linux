@@ -651,6 +651,28 @@ _STRINGS = {
     "FOREGROUND_HELP": (
         'Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)',
         'Run in the foreground in this process instead of the service (lost on restart)'),
+    # --- large folder warning ---
+    "SIZE_SUMMARY": (
+        '≈ {size} · {files} dosya · tahmini ~{duration}',
+        '≈ {size} · {files} files · estimated ~{duration}'),
+    "SIZE_LINE": (
+        'Yükleme boyutu: {summary}',
+        'Upload size: {summary}'),
+    "LARGE_WARNING": (
+        'Bu klasör büyük: ilk eşitleme uzun sürebilir ve Drive alanını ciddi ölçüde kullanır. Gerekmeyen büyük alt klasörleri hariç tutabilirsiniz.',
+        'This folder is large: the initial sync can take a long time and use a lot of Drive space. You can exclude large subfolders you do not need.'),
+    "LARGEST_SUBFOLDERS": (
+        'En büyük alt klasörler:',
+        'Largest subfolders:'),
+    "SUBFOLDER_LINE": (
+        '{name}/ — {size} · {files} dosya',
+        '{name}/ — {size} · {files} files'),
+    "EXCLUDE_SUBFOLDER": (
+        'Hariç tut',
+        'Exclude'),
+    "DRY_LARGE_HINT": (
+        "Alt klasörü hariç tutmak için: drivesync-cli config excludes add 'klasör-adı/' --json",
+        "To exclude a subfolder: drivesync-cli config excludes add 'folder-name/' --json"),
 }
 
 HELP = _Localized({

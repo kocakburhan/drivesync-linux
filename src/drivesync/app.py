@@ -14,7 +14,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 from . import app_model, config, i18n, init_flow
 from .client import DRIVE_URL, StatusClient
 from .paths import Paths
-from .presentation import ICONS, present, overall_progress
+from .presentation import ICONS, present, overall_progress, size_summary, size_text, format_number
 from .state import StateError, StateStore
 
 APP_ID = "io.github.kocakburhan.DriveSync.App"
@@ -588,9 +588,36 @@ class DriveSyncApp(Adw.Application, StatusClient):
             self.show_init_summary(folder, plan)
         self.run_background(init_flow.preview_command(self.cli_path(), folder["id"]), previewed)
 
+    def large_folder_box(self, folder, size, dialog):
+        box = margins(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), 12)
+        box.add_css_class("card")
+        warning = Gtk.Label(label=i18n.LARGE_WARNING, wrap=True, xalign=0)
+        warning.add_css_class("warning")
+        box.append(warning)
+        for item in size["largest_subfolders"]:
+            row = Gtk.Box(spacing=12)
+            text = i18n.SUBFOLDER_LINE.format(name=item["name"], size=size_text(item["bytes"]),
+                                              files=format_number(item["files"]))
+            row.append(Gtk.Label(label=text, xalign=0, hexpand=True, wrap=True, valign=Gtk.Align.CENTER))
+            row.append(button(i18n.EXCLUDE_SUBFOLDER,
+                              lambda name=item["name"]: self.exclude_subfolder(folder, name, dialog)))
+            box.append(row)
+        return box
+
+    def exclude_subfolder(self, folder, name, dialog):
+        """Add the subfolder to the global excludes, then preview again with the new plan."""
+        pattern = name + "/"
+        if self.edit_config(lambda data: app_model.exclude_added(data, pattern)):
+            dialog.close()
+            self.start_init(folder)
+
     def show_init_summary(self, folder, plan):
         dialog = Adw.MessageDialog.new(self.window, folder["remote_name"], plan.summary)
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        if plan.size:
+            content.append(Gtk.Label(label=size_summary(plan.size), xalign=0, wrap=True))
+            if plan.size["large"]:
+                content.append(self.large_folder_box(folder, plan.size, dialog))
         details = Gtk.Expander(label=i18n.INIT_DETAILS)
         scroll = Gtk.ScrolledWindow(min_content_height=100, max_content_height=220,
                                    propagate_natural_height=True)

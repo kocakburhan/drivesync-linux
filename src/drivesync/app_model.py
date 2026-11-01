@@ -118,6 +118,14 @@ def remove_folder(data, folder_id):
     return result
 
 
+def exclude_added(data, pattern):
+    """Global excludes plus one pattern; an existing pattern is kept once."""
+    result = deepcopy(data)
+    if pattern not in result["excludes"]:
+        result["excludes"].append(pattern)
+    return config.validate(result)
+
+
 def settings_edit(data, poll, debounce, max_delete, excludes):
     result = deepcopy(data)
     result.update(poll_interval_minutes=poll, debounce_seconds=debounce,

@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 import sys
 
-from . import __version__, config as configuration, filters, i18n, init_flow, prerequisites
+from . import __version__, config as configuration, filters, i18n, init_flow, prerequisites, presentation
 
 # doctor must work before python3-gi and the typelibs have been installed.
 try:
@@ -146,6 +146,19 @@ def _check_unchanged(paths, config, folder, digest):
     return current, current_folder
 
 
+def print_size(size):
+    print(i18n.SIZE_LINE.format(summary=presentation.size_summary(size)))
+    if size["large"]:
+        print(i18n.LARGE_WARNING)
+    if size["largest_subfolders"]:
+        print(i18n.LARGEST_SUBFOLDERS)
+    for item in size["largest_subfolders"]:
+        print(i18n.SUBFOLDER_LINE.format(name=item["name"], size=presentation.size_text(item["bytes"]),
+                                         files=presentation.format_number(item["files"])))
+    if size["large"]:
+        print(i18n.DRY_LARGE_HINT)
+
+
 def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_output=False):
     def failed(message):
         if json_output:
@@ -209,11 +222,14 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
             result = rclone.parse_log(log, code, dry_run=dry_run)
             if dry_run and code == 0 and not result.blocked_delete:
                 _check_unchanged(paths, config, folder, digest)
+                size = init_flow.size_report(folder["local"], config["excludes"],
+                                             config["assumed_upload_bytes_per_second"])
                 if not json_output:
                     print(i18n.DRY_SUMMARY.format(to_remote=result.to_remote, to_local=result.to_local,
                                                 deletes=result.deletes))
                     if result.unknown:
                         print(i18n.DRY_UNKNOWN.format(count=result.unknown))
+                    print_size(size)
                     print(i18n.DRY_ACTIONS)
                     for line in result.actions:
                         print(line)
@@ -230,7 +246,8 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
                              last_exit_code=0, last_sync_finished=now())
                 if json_output:
                     emit(dict(to_remote=result.to_remote, to_local=result.to_local,
-                              deletes=result.deletes, unknown=result.unknown, actions=result.actions[:50]))
+                              deletes=result.deletes, unknown=result.unknown, actions=result.actions[:50],
+                              size=size))
                 else:
                     print(i18n.DRY_OK)
                 return 0
@@ -263,7 +280,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
 
 
 SAFE_KEYS = ("root_folder", "language", "poll_interval_minutes", "full_sync_interval_minutes", "debounce_seconds",
-             "max_delete_percent", "transfers", "init_transfers", "checkers")
+             "max_delete_percent", "transfers", "init_transfers", "checkers", "assumed_upload_bytes_per_second")
 
 
 def emit(value):
