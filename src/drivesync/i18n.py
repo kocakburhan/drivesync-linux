@@ -670,6 +670,13 @@ _STRINGS = {
     "PAUSE_ON_BATTERY": (
         'Pilde otomatik duraklat',
         'Pause automatically on battery'),
+    # --- notification actions ---
+    "NOTIFY_REVIEW": (
+        'İncele',
+        'Review'),
+    "NOTIFY_SHOW_CONFLICTS": (
+        'Çakışmaları göster',
+        'Show conflicts'),
 }
 
 HELP = _Localized({
