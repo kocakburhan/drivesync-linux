@@ -630,10 +630,11 @@ class DriveSyncApp(Adw.Application, StatusClient):
             self.init_pending.discard(folder["id"])
             self.refresh()
             if not success:
-                self.request_failed(i18n.INIT_LAUNCH_FAILED)
+                self.request_failed(errors.strip() or i18n.INIT_LAUNCH_FAILED)
             else:
                 self._request("GetStatus")
-        self.run_background(init_flow.launch_command(self.cli_path(), folder["id"], os.environ), launched)
+        kind = "resync" if folder.get("initialized") else "init"
+        self.run_background(init_flow.submit_command(self.cli_path(), folder["id"], kind), launched)
 
     def confirm_remove(self, folder):
         dialog = Adw.MessageDialog.new(self.window, i18n.REMOVE_HEADING,

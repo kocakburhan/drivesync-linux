@@ -185,67 +185,75 @@ class AgentCliTests(IsolatedTest):
                             ("config", "set", "transfers", "3"), ("progress", "docs"), ("status",)):
                 self.assertEqual(self.cli(*command)[0], 0)
 
-    def test_background_builds_detached_command_and_returns_unit_json(self):
+    def submit(self, *args, code=0, running=True, accepted=True):
+        with patch("drivesync.cli.dbus_service.daemon_running", return_value=running), \
+             patch("drivesync.cli.dbus_service.call", return_value=accepted) as call:
+            value = self.value(*args, code=code)
+        return value, call
+
+    def test_background_submits_approved_request_to_daemon_without_systemd(self):
         self.assertEqual(self.cli("init", "docs", "--dry-run", "--json")[0], 0)
-        with patch("drivesync.cli.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
-            value = self.value("init", "docs", "--background", "--yes")
-        self.assertEqual(value["unit"], "drivesync-init-docs.service")
-        command = run.call_args.args[0]
-        self.assertEqual(command[:4], ["systemd-run", "--user", "--unit=drivesync-init-docs", "--collect"])
-        self.assertNotIn("--wait", command)
-        self.assertEqual(command[-5:], ["--", str(ROOT / "bin/drivesync-cli"), "init", "docs", "--yes"])
-        self.assertIn("--setenv=XDG_CONFIG_HOME=" + self.env["XDG_CONFIG_HOME"], command)
-        self.assertEqual(run.call_args.kwargs["timeout"], 15)
+        with patch("drivesync.cli.subprocess.run") as run:
+            value, call = self.submit("init", "docs", "--background", "--yes")
+            run.assert_not_called()
+        call.assert_called_once_with("StartInit", "docs", "init")
+        self.assertEqual(value["queued"], True)
+        request = self.store.read()["folders"]["docs"]["init_request"]
+        self.assertEqual(request["kind"], "init")
+        self.assertEqual(request["approved_plan"], {"to_remote": 1, "to_local": 1, "deletes": 1})
+        self.assertEqual(self.store.read()["folders"]["docs"]["status"], "init_queued")
         self.assertFalse(config.load(self.paths)["folders"][0]["initialized"])
 
+    def test_plain_yes_also_submits_and_resync_kind_is_recorded(self):
+        self.assertEqual(self.cli("resync", "docs", "--dry-run", "--json")[0], 0)
+        value, call = self.submit("resync", "docs", "--yes")
+        call.assert_called_once_with("StartInit", "docs", "resync")
+        self.assertEqual(self.store.read()["folders"]["docs"]["init_request"]["kind"], "resync")
+
+    def test_without_daemon_nothing_is_persisted_and_message_is_clear(self):
+        self.assertEqual(self.cli("init", "docs", "--dry-run", "--json")[0], 0)
+        value, call = self.submit("init", "docs", "--yes", code=1, running=False)
+        self.assertEqual(value["error"]["code"], "daemon_unavailable")
+        self.assertIn("--foreground", value["error"]["message"])
+        call.assert_not_called()
+        self.assertIsNone(self.store.read()["folders"]["docs"]["init_request"])
+
+    def test_refused_by_daemon_reverts_request(self):
+        self.assertEqual(self.cli("init", "docs", "--dry-run", "--json")[0], 0)
+        self.submit("init", "docs", "--yes", code=1, accepted=False)
+        item = self.store.read()["folders"]["docs"]
+        self.assertIsNone(item["init_request"])
+        self.assertEqual(item["status"], "not_initialized")
+
+    def test_foreground_runs_directly_without_daemon(self):
+        self.assertEqual(self.cli("init", "docs", "--dry-run", "--json")[0], 0)
+        with patch("drivesync.cli.dbus_service.call") as call:
+            code, out, err = self.cli("init", "docs", "--yes", "--foreground")
+        self.assertEqual(code, 0, err)
+        call.assert_not_called()
+        self.assertTrue(config.load(self.paths)["folders"][0]["initialized"])
+
     def test_background_requires_current_successful_preview_and_enabled_folder(self):
-        with patch("drivesync.cli.subprocess.run") as run:
-            self.assertFalse(self.value("init", "docs", "--background", "--yes", code=1)["ok"])
-            run.assert_not_called()
+        self.assertFalse(self.submit("init", "docs", "--background", "--yes", code=1)[0]["ok"])
         self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
         self.config["root_folder"] = "Changed"
         config.save(self.paths, self.config)
-        with patch("drivesync.cli.subprocess.run") as run:
-            self.value("init", "docs", "--background", "--yes", code=1)
-            self.config["folders"][0]["enabled"] = False
-            config.save(self.paths, self.config)
-            self.value("init", "docs", "--background", "--yes", code=1)
-            run.assert_not_called()
+        self.submit("init", "docs", "--background", "--yes", code=1)
+        self.config["folders"][0]["enabled"] = False
+        config.save(self.paths, self.config)
+        self.submit("init", "docs", "--background", "--yes", code=1)
+        self.assertIsNone(self.store.read()["folders"]["docs"]["init_request"])
 
     def test_background_refuses_held_lock_invalid_flags_and_unknown_id(self):
-        with patch("drivesync.cli.subprocess.run") as run:
+        with patch("drivesync.cli.dbus_service.daemon_running", return_value=True), \
+             patch("drivesync.cli.dbus_service.call") as call:
             with execution_lock(self.paths, "docs"):
                 self.assertEqual(self.value("init", "docs", "--background", "--yes", code=1)["error"]["code"], "busy")
             for command in (("init", "docs", "--background", "--dry-run"),
+                            ("init", "docs", "--background", "--foreground", "--yes"),
                             ("init", "unknown", "--background", "--yes")):
                 self.value(*command, code=1)
-            run.assert_not_called()
-
-    def test_background_failure_and_timeout_do_not_expose_child_output(self):
-        self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
-        failures = (subprocess.CompletedProcess([], 1, "private-secret", "private-secret"),
-                    subprocess.TimeoutExpired("secret-command", 15), FileNotFoundError())
-        for result in failures:
-            with patch("drivesync.cli.subprocess.run", **({"side_effect": result} if isinstance(result, Exception)
-                                                         else {"return_value": result})):
-                value = self.value("init", "docs", "--background", "--yes", code=1)
-                self.assertNotIn("secret", json.dumps(value))
-
-    def test_background_uses_installed_launcher_and_preserves_environment_arguments(self):
-        self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
-        prefix = self.root / "custom prefix"
-        launcher = prefix / "bin/drivesync-cli"
-        launcher.parent.mkdir(parents=True)
-        launcher.touch()
-        with patch("drivesync.cli.__file__", str(prefix / "lib/drivesync/drivesync/cli.py")), \
-             patch.dict(os.environ, RCLONE_CONFIG=str(self.root / "config with spaces")), \
-             patch("drivesync.cli.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
-            code, out, err = self.cli("init", "docs", "--background", "--yes")
-        self.assertEqual(code, 0, err)
-        self.assertIn("drivesync-init-docs.service", out)
-        command = run.call_args.args[0]
-        self.assertEqual(command[-5:], ["--", str(launcher), "init", "docs", "--yes"])
-        self.assertIn("--setenv=RCLONE_CONFIG=" + str(self.root / "config with spaces"), command)
+            call.assert_not_called()
 
     def test_json_dry_run_success_and_failure_contract(self):
         value = self.value("init", "docs", "--dry-run")

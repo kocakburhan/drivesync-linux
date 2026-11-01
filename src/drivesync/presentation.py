@@ -141,6 +141,12 @@ def present(status=None, now=None):
                             "syncing", paused)
     if state == "error" and daemon.get("last_error"):
         return Presentation(daemon["last_error"], "error")
+    for wanted, template, icon in (("needs_approval", i18n.TRAY_INIT_APPROVAL, "error"),
+                                   ("init_queued", i18n.TRAY_INIT_QUEUED, "neutral")):
+        waiting = next((f for f in configured if f.get("enabled", True)
+                        and folders.get(f["id"], {}).get("status") == wanted), None)
+        if waiting is not None and not paused:
+            return Presentation(template.format(name=waiting.get("remote_name", waiting["id"])), icon)
     if state == "offline":
         return Presentation(i18n.TRAY_OFFLINE, "offline", paused)
     if paused:

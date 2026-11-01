@@ -62,7 +62,7 @@ def main():
                                        "--object-path", OBJECT_PATH, "--xml"], text=True, timeout=6)
         interface = ET.fromstring(xml).find(f"interface[@name='{INTERFACE}']")
         assert {m.attrib["name"] for m in interface.findall("method")} == {
-            "GetStatus", "SyncNow", "Pause", "Resume", "ReloadConfig"}
+            "GetStatus", "SyncNow", "StartInit", "Pause", "Resume", "ReloadConfig"}
         assert interface.find("signal").attrib["name"] == "StatusChanged"
         duplicate = subprocess.run([sys.executable, str(ROOT / "bin/drivesync-daemon")],
                                    capture_output=True, text=True, timeout=6)

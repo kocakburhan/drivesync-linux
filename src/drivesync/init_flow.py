@@ -37,7 +37,9 @@ def parse_plan(output):
 
 
 def init_label(folder, state):
-    if (not folder.get("enabled", True) or state.get("status") in ("syncing", "queued")
+    if folder.get("enabled", True) and state.get("status") == "needs_approval":
+        return i18n.INIT_REAPPROVE
+    if (not folder.get("enabled", True) or state.get("status") in ("syncing", "queued", "init_queued")
             or (folder.get("initialized") and not state.get("needs_resync"))):
         return None
     return i18n.INIT_RESYNC if folder.get("initialized") else i18n.INIT_START
@@ -47,13 +49,23 @@ def preview_command(cli, folder_id):
     return [cli, "init", folder_id, "--dry-run", "--json"]
 
 
-def launch_command(cli, folder_id, environment):
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", folder_id):
+def submit_command(cli, folder_id, kind="init"):
+    """Ask the CLI to persist the approval and hand the job to the daemon."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", folder_id) or kind not in ("init", "resync"):
         raise ValueError(i18n.INIT_PLAN_INVALID)
-    command = ["systemd-run", "--user", "--unit=drivesync-init-" + folder_id, "--collect",
-               "--property=Type=exec"]
-    for name in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "RCLONE_CONFIG"):
-        if environment.get(name):
-            command.append("--setenv=" + name + "=" + environment[name])
     # Both GUI and CLI callers have already obtained explicit user approval.
-    return command + ["--", cli, "init", folder_id, "--yes"]
+    return [cli, kind, folder_id, "--yes", "--json"]
+
+
+def approved_plan(plan):
+    """The counts the user approved, as stored in folders.<id>.init_request."""
+    return {"to_remote": plan["to_remote"], "to_local": plan["to_local"], "deletes": plan["deletes"]}
+
+
+def resume_is_safe(fresh, approved):
+    """A fresh dry-run may resume only if it carries no new risk.
+
+    Remaining uploads are fine (uploaded files are skipped); any delete, an
+    unknown action or more downloads than approved require a new approval.
+    """
+    return fresh.deletes == 0 and fresh.unknown == 0 and fresh.to_local <= approved["to_local"]

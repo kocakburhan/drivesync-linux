@@ -108,12 +108,11 @@ class ReleaseTests(IsolatedTest):
                 init_flow.parse_plan(bad)
 
     def test_detached_command_preserves_paths_without_shell_interpretation(self):
-        command = init_flow.launch_command("/a path/drivesync-cli", "docs", {"XDG_CONFIG_HOME": "/config path"})
-        self.assertEqual(command[:4], ["systemd-run", "--user", "--unit=drivesync-init-docs", "--collect"])
-        self.assertIn("--setenv=XDG_CONFIG_HOME=/config path", command)
-        self.assertEqual(command[-5:], ["--", "/a path/drivesync-cli", "init", "docs", "--yes"])
+        command = init_flow.submit_command("/a path/drivesync-cli", "docs")
+        self.assertEqual(command, ["/a path/drivesync-cli", "init", "docs", "--yes", "--json"])
+        self.assertNotIn("systemd-run", command)
         with self.assertRaises(ValueError):
-            init_flow.launch_command("cli", "../bad", {})
+            init_flow.submit_command("cli", "../bad")
         folder = self.config["folders"][0]
         self.assertEqual(init_flow.init_label(folder, {}), i18n.INIT_START)
         self.assertEqual(init_flow.init_label(dict(folder, initialized=True), dict(needs_resync=True)), i18n.INIT_RESYNC)

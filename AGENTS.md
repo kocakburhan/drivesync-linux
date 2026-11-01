@@ -130,12 +130,16 @@ Commands below perform real setup **when the user requests setup**; during devel
    ```bash
    drivesync-cli init FOLDER_ID --background --yes --json
    ```
-   This returns immediately with `unit: drivesync-init-FOLDER_ID.service`; multi-hour uploads outlive tool calls.
+   This stores the user's approval (the approved plan, filters and path hashes) in state and hands the job to the
+   **daemon**, then returns immediately with `queued: true`; multi-hour uploads outlive tool calls. The daemon must
+   be running (otherwise: `systemctl --user start drivesync.service`, or run in the foreground with `--foreground`).
+   The job **survives reboot and logout**: on every daemon start it re-runs a fresh dry-run and resumes
+   automatically if the plan carries no new risk (0 deletes, no more downloads than approved); otherwise the
+   folder becomes `needs_approval` and the user gets a notification. In that case repeat step 8 (preview, show,
+   approve). Retries after failures are bounded (1, 5, 15, 60 minutes, then it gives up); offline simply waits.
    A real init requires a successful preview within 24 hours for the same paths, filters and deletion guard.
-   The detached child rechecks this. On refusal, make a fresh preview and ask again. On launch failure check
-   `systemctl --user status drivesync-init-FOLDER_ID.service` and `journalctl --user -u drivesync-init-FOLDER_ID`.
-   For a failed job, `systemctl --user reset-failed drivesync-init-FOLDER_ID` may be needed before retrying.
-   Keep the computer awake and the user logged in. Do not start duplicate jobs.
+   On refusal, make a fresh preview and ask again. Follow progress with `drivesync-cli progress FOLDER_ID --json`
+   and `drivesync-cli logs FOLDER_ID`. Do not start duplicate jobs.
 
 9. **Verify completion**, polling with separate short tool calls:
    ```bash
@@ -174,10 +178,11 @@ drivesync-cli config excludes remove PATTERN [--json]
 drivesync-cli status [--json]
 drivesync-cli progress ID [--json]
 drivesync-cli init ID --dry-run [--json]
-drivesync-cli init ID --yes
+drivesync-cli init ID --yes [--json]            # submit to the daemon (same as --background)
 drivesync-cli init ID --background --yes [--json]
+drivesync-cli init ID --yes --foreground         # run in this process (lost on reboot)
 drivesync-cli resync ID --dry-run [--json]
-drivesync-cli resync ID --yes
+drivesync-cli resync ID --yes [--json|--foreground]
 drivesync-cli force-sync ID --yes
 drivesync-cli setup-remote --client-json PATH [--remote NAME] [--replace --yes]
 drivesync-cli add-folder LOCAL_PATH [--name NAME] [--json]
@@ -224,8 +229,9 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
   **config excludes list/add/remove**: `{"schema_version":1,"patterns":["*.tmp"]}`.
 - **init/resync dry-run**: `{"schema_version":1,"to_remote":1,"to_local":0,"deletes":0,"unknown":0,"actions":[]}`.
   Counts are nonnegative integers; actions are at most 50 strings. Failure never authorizes a real run.
-- **init --background**: `{"schema_version":1,"id":"docs","unit":"drivesync-init-docs.service"}`;
-  this means the unit was launched, not that synchronization finished.
+- **init/resync --yes (--background)**: `{"schema_version":1,"id":"docs","kind":"init","queued":true}`;
+  this means the daemon accepted the approved request, not that synchronization finished. Without a running
+  daemon the error code is `daemon_unavailable`.
 - **status**: `{"schema_version":1,"daemon":{…},"paused":false,"folder_config":[…],"folders":{"docs":{…}},"recent_conflicts":[],…}`.
   The daemon object includes status and last_error; folder objects include status, needs_resync, progress,
   last_success, last_exit_code, last_error and last_log. Without the daemon, saved state/config are returned
@@ -285,13 +291,13 @@ credentials remain installed. After purge, first sync needs a new preview and ap
 
 - Layout: `src/drivesync/cli.py` handles CLI dispatch; `doctor.py` diagnostics; `config.py`/`state.py` atomic
   persistence and locks; `prerequisites.py` local rclone checks; `setup_remote.py` OAuth; `init_flow.py` shared
-  preview/launch commands; `rclone.py` builds/runs synchronization; `daemon.py` schedules it;
+  preview/submit commands; `rclone.py` builds/runs synchronization; `daemon.py` schedules it;
   `app.py`/`app_model.py`, `tray.py`, `nautilus_ext.py` provide desktop integration.
   `bin/` launchers, `data/` systemd/desktop/icons, `install.sh`/`uninstall.sh`, `tests/` and `docs/` complete the repo.
 - Run the full suite: `python3 -m unittest discover -s tests`.
   Optional GUI/session verification: `xvfb-run -a dbus-run-session -- python3 -m unittest discover -s tests`.
 - Integration tests use **local temporary directories only**, with empty temporary rclone configuration.
-  Test all commands with fakes; never run systemd-run for real during tests. Never access the network or modify
+  Test all commands with fakes; never start real systemd units during tests. Never access the network or modify
   real `~/.config/drivesync`, `~/.local/state/drivesync`, `~/.local/share`, `~/.local/bin`,
   `~/.config/systemd`, or `~/.config/rclone` during development/testing.
 - Keep dependencies **stdlib + gi only; no pip**. Put Turkish UI/help/error strings in `i18n.py`.

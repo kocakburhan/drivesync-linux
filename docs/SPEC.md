@@ -120,7 +120,7 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
    Creating an empty remote directory is the only remote data mutation allowed during this preview.
    With `--json`, stdout is one JSON document: nonnegative integer `to_remote`, `to_local`, `deletes`,
    `unknown` and `actions` (first 50 action strings). Failures return nonzero and diagnostics on stderr;
-   `--json` without `--dry-run` is rejected except with `init --background`. Runtime JSON errors use the AGENTS.md contract.
+   `--json` without `--dry-run` is rejected except when submitting to the daemon. Runtime JSON errors use the AGENTS.md contract.
    On failure, print a Turkish failure message and the first ERROR lines, exit non-zero, and leave
    `dry_run_ok_at=null`. An uninitialized folder stays `not_initialized`, with `needs_resync=false` and the
    diagnostic in `last_error`. A successful preview clears its `last_error` and `needs_resync`.
@@ -186,6 +186,7 @@ Bus name `io.github.kocakburhan.DriveSync`, object `/io/github/kocakburhan/Drive
 |---|---|---|
 | `GetStatus()` | `→ s` | JSON string = state.json content plus `paused` and folder config summary |
 | `SyncNow(s folder_id)` | `→ b` | empty string = all eligible folders |
+| `StartInit(s folder_id, s kind)` | `→ b` | kind `init`/`resync`; runs the approved `folders.<id>.init_request` already persisted by the CLI. False if there is no matching request |
 | `Pause()` / `Resume()` | `→ b` | persists `paused` in config |
 | `ReloadConfig()` | `→ b` | |
 | signal `StatusChanged(s json)` | | emitted on every state change (debounced to max 2/s) |
@@ -226,9 +227,11 @@ recognition or `NOTIFY_FORCE_PORTAL`, not on the display app name or desktop-ent
   `drivesync-cli init <id> --dry-run --json` subprocess shows a spinner, then an Adw.MessageDialog
   summarizes directional counts and deletions, with an expandable first-50 action list. Deletions require
   typing the exact Drive folder name; unknown actions block launch until investigated.
-  “Başlat” asynchronously invokes `systemd-run --user --unit=drivesync-init-<id> --collect`
-  with the absolute CLI path. This detached service survives window closure; existing state progress
-  and state-file monitoring update clients. User logout/reboot can interrupt it. Pure flow logic is in init_flow.py.
+  “Başlat” asynchronously runs `drivesync-cli init|resync <id> --yes --json`, which persists the approval and
+  submits the job to the daemon (`StartInit`). The daemon owns the job, so it survives window closure, logout
+  and reboot. Rows show “İlk eşitleme sürüyor” (`syncing`), “İlk eşitleme sırada (yeniden başlatma sonrası devam
+  edecek)” (`init_queued`) or “Yeniden onay gerekiyor” (`needs_approval`); the latter's button (“Yeniden onayla”)
+  re-opens the dry-run review flow. Pure flow logic is in init_flow.py.
 - Preferences edit poll interval, debounce, max-delete and excludes using existing config persistence and
   ReloadConfig. A Turkish warning explains that exclude changes require preview/resync of initialized folders.
 - “Son çakışmalar (N)” opens a modal libadwaita list with path, folder, timestamp, winning side,
@@ -259,9 +262,26 @@ creating config/state. `folder list|add|remove|enable|disable` and `config get|s
 `status --json` and `progress <id> --json` expose state to agents.
 
 All confirming CLI commands require explicit `--yes`; no command reads a confirmation from stdin,
-including on a TTY. Real init/resync still require a recent successful dry-run. `init <id> --background --yes`
-launches `systemd-run --user --unit=drivesync-init-<id> --collect` and returns immediately; the child
-rechecks preview validity. The GUI's existing approval flow supplies --yes to its detached child too.
+including on a TTY. Real init/resync still require a recent successful dry-run. `init|resync <id> --yes`
+(`--background` is an alias) records the approval and submits it to the daemon over D-Bus, then returns; the
+daemon rechecks preview validity. Without a running daemon the command fails with a message suggesting
+`systemctl --user start drivesync.service` or `--foreground`, which runs the job in the CLI process (not reboot-safe).
+The GUI supplies --yes the same way.
+
+#### Daemon-owned init/resync (reboot-safe)
+
+On a real request the CLI stores, after the mandatory successful dry-run (`folders.<id>.dry_run_plan`):
+`folders.<id>.init_request = {"kind": "init"|"resync", "approved_at": ISO, "approved_plan": {"to_remote", "to_local",
+"deletes"}, "filters_sha256", "pair_sha256"}` and status `init_queued`. The daemon runs it as a job in its serialized
+queue (same engine/folder locks, `init_transfers`, live progress): `mkdir`, optional fresh dry-run, marker `copyto`,
+`bisync --resync`. On success the folder is marked initialized and `init_request` is cleared.
+On daemon start (and after interrupted runs, which are put back to `init_queued`) every pending request first runs a
+FRESH dry-run (skipped only when the approval's own dry-run is still valid and no run has started). It resumes
+automatically only if the fresh plan has 0 deletes, 0 unknown actions and `to_local` <= the approved `to_local`;
+changed paths/filters also stop it. Otherwise nothing runs: status `needs_approval`, the request is kept and the
+user is notified (“İlk eşitleme yeniden onay bekliyor: <ad>”). Failures retry with backoff 1, 5, 15, 60 minutes
+(`init_attempts`, `init_next_retry_at`), then give up (request cleared, error shown); network loss waits without
+consuming a retry.
 Commands use the same execution/folder locks as the daemon.
 The `status` table shows each `last_error` as one line: first ERROR message, timestamp/level removed, at most 80 characters
 (including an ellipsis when truncated). Full diagnostics remain in state and logs.

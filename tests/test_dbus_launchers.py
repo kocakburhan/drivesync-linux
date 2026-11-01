@@ -18,6 +18,7 @@ class DBusLauncherTests(IsolatedTest):
         interface = ET.fromstring(XML).find("interface")
         self.assertEqual(interface.attrib["name"], INTERFACE)
         expected = {"GetStatus": [("s", "out")], "SyncNow": [("s", "in"), ("b", "out")],
+                    "StartInit": [("s", "in"), ("s", "in"), ("b", "out")],
                     "Pause": [("b", "out")], "Resume": [("b", "out")], "ReloadConfig": [("b", "out")]}
         actual = {method.attrib["name"]: [(arg.attrib["type"], arg.attrib["direction"])
                                          for arg in method] for method in interface.findall("method")}

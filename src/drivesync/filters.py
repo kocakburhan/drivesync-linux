@@ -49,7 +49,8 @@ def prepare(paths, config, store, *, owned_folder_id=None):
                 item["needs_resync"] = False
             if not folder["enabled"]:
                 item["status"] = "disabled"
-            elif not folder["initialized"] and not item["needs_resync"]:
+            elif (not folder["initialized"] and not item["needs_resync"]
+                  and not (item.get("init_request") and item["status"] in ("init_queued", "needs_approval"))):
                 item["status"] = "not_initialized"
             elif item["needs_resync"] and item["status"] == "disabled":
                 item["status"] = "error"
