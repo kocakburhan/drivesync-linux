@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+os.environ["DRIVESYNC_NO_NETWORK"] = "1"  # never reach GitHub from tests
 os.environ["DRIVESYNC_LANG"] = "tr"  # existing assertions are Turkish; test_i18n covers English
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -28,6 +29,7 @@ class IsolatedTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.env = {
             "DRIVESYNC_LANG": "tr",
+            "DRIVESYNC_NO_NETWORK": "1",
             "HOME": str(self.root / "home"),
             "XDG_CONFIG_HOME": str(self.root / "config"),
             "XDG_STATE_HOME": str(self.root / "state"),

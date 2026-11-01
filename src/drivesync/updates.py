@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 import json
+import os
 import logging
 from pathlib import Path
 import re
@@ -49,6 +50,9 @@ def is_newer(latest, current):
 
 def fetch_latest(current=__version__, opener=urllib.request.urlopen):
     """Ask GitHub for the newest published release. Raises UpdateError on any failure."""
+    if opener is urllib.request.urlopen and os.environ.get("DRIVESYNC_NO_NETWORK") == "1":
+        # Test suites set this so the daemon's background check never reaches the network.
+        raise UpdateError("network disabled")
     request = urllib.request.Request(LATEST_API, headers={
         "User-Agent": f"DriveSync/{current}", "Accept": "application/vnd.github+json"})
     try:
