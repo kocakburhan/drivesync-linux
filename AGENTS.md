@@ -226,7 +226,13 @@ numbers with optional `b|k|M|G|T|P` (+`i`/`B`); no resync needed; a running tran
 `assumed_upload_bytes_per_second` (finite number > 0, default `1048576`; only converts the dry-run `size` into an estimated duration).
 `check_updates` (`true` or `false`, default `true`: the daemon asks GitHub for the latest release at most once a day,
 without credentials, and only announces it; `false` turns the check off).
-Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys and `check_updates` take `true`/`false`). Excludes must be nonempty strings without surrounding
+`parallel_lanes` (boolean, default `true`): the daemon has two execution lanes, a **long** lane for init/resync and a
+**normal** lane for routine bisync, each running at most one job, so routine syncs of other initialized folders keep
+flowing during a multi-hour initial upload. Never two jobs on one folder; a folder with a pending/running init/resync is
+never in the normal lane. `false` restores strictly one job at a time. With both lanes busy they share the link; a
+configured `bwlimit` is applied to each job separately (so the total can reach twice the limit). Direct CLI runs take
+the long lane (`init`/`resync`, also `--dry-run`) or the normal lane (`force-sync`) plus the folder lock.
+Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys, `check_updates` and `parallel_lanes` take `true`/`false`). Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
 Per-folder excludes (subcommands `drivesync-cli folder excludes list`, `drivesync-cli folder excludes add` and
 `drivesync-cli folder excludes remove`, each taking the folder ID first as in the command list above; stored as optional `"excludes"` in the folder entry) use the same
@@ -267,7 +273,8 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
   this means the daemon accepted the approved request, not that synchronization finished. Without a running
   daemon the error code is `daemon_unavailable`.
 - **status**: `{"schema_version":1,"daemon":{…},"paused":false,"folder_config":[…],"folders":{"docs":{…}},"recent_conflicts":[],…}`.
-  The daemon object includes status and last_error; folder objects include status, needs_resync, progress,
+  The daemon object includes status, last_error, `current_folder` (long-lane folder if any, else the normal-lane one;
+  kept for compatibility) and `current_folders` (list of every folder a lane runs now); folder objects include status, needs_resync, progress,
   last_success, last_exit_code, last_error and last_log. Without the daemon, saved state/config are returned
   with daemon.status `error` and a Turkish explanation.
 - **update --check --json**: `{"schema_version":1,"current":"0.2.0","latest":"0.3.0","update_available":true,"url":"https://github.com/…"}`.

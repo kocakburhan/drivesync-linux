@@ -1,4 +1,9 @@
-"""Single-instance GLib daemon with one globally serialized rclone child."""
+"""Single-instance GLib daemon running rclone jobs in two lanes.
+
+The "long" lane carries initial syncs/resyncs, the "normal" lane routine bisyncs.  Each lane
+runs at most one job; the lanes may overlap, but never on the same folder.  With
+``parallel_lanes`` false every job uses the long lane, i.e. one job at a time as before.
+"""
 
 from datetime import datetime, timedelta, timezone
 import json
@@ -29,6 +34,32 @@ INIT_SCAN_SECONDS = 5
 UPDATE_PROBE_SECONDS = 60
 
 
+class Lane:
+    """State of one execution lane: the job (if any) and its private config snapshot."""
+
+    def __init__(self, name):
+        self.name = name
+        self.reset()
+
+    def reset(self):
+        self.folder_id = None      # set as soon as a queue entry is taken; marks the lane busy
+        self.reasons = None
+        self.folder = None         # folder dict, set once the job really starts
+        self.config = None         # snapshot: a reload never changes a running job
+        self.digest = None
+        self.child = None
+        self.lock = None
+        self.folder_lock = None
+        self.log = None
+        self.progress = None
+        self.job = None
+        self.auto_stop = False
+
+    @property
+    def busy(self):
+        return self.folder_id is not None
+
+
 class Daemon:
     def __init__(self, paths, power=None):
         self.paths = paths
@@ -41,14 +72,9 @@ class Daemon:
         self.power = power if power is not None else NullPower()
         self.power.callback = self._power_changed
         self.auto_reason = None
-        self.auto_stop = False
         self.notifier = Notifier()
-        self.child = None
-        self.lock = None
-        self.folder_lock = None
-        self.active_folder = None
-        self.log = None
-        self.progress = None
+        self.lanes = {"long": Lane("long"), "normal": Lane("normal")}
+        self.refilter = False
         self.stopping = False
         self.pending_reload = False
         self.config_valid = True
@@ -57,8 +83,6 @@ class Daemon:
         self.next_setup_check = 0
         self.next_poll = time.monotonic()
         self.next_init_scan = 0
-        self.job = None
-        self.digests = {}
         self.sources = []
         self.checker = remote_watch.RemoteChecker(paths, lambda: self.config)
         self.remote_warned = False
@@ -66,6 +90,46 @@ class Daemon:
         self.updates = updates.UpdateChecker(self.store, self.notifier.update_available)
         self.update_thread = None
         self.next_update_probe = 0
+
+    # Single-lane views kept for callers that predate the lanes.
+    @property
+    def child(self):
+        return next((lane.child for lane in self.lanes.values() if lane.child), None)
+
+    @property
+    def lock(self):
+        return next((lane.lock for lane in self.lanes.values() if lane.lock), None)
+
+    @property
+    def active_folder(self):
+        return next((lane.folder for lane in self.lanes.values() if lane.folder), None)
+
+    @property
+    def progress(self):
+        return next((lane.progress for lane in self.lanes.values() if lane.progress), None)
+
+    @property
+    def auto_stop(self):
+        return any(lane.auto_stop for lane in self.lanes.values())
+
+    def _busy(self):
+        return [lane for lane in self.lanes.values() if lane.busy]
+
+    def _parallel(self):
+        return bool(self.config.get("parallel_lanes", True))
+
+    def _lane_for(self, reasons):
+        """Init/resync entries go to the long lane; everything else to the normal lane."""
+        return "long" if "init" in reasons or not self._parallel() else "normal"
+
+    def _status(self):
+        return "syncing" if self._busy() else self._idle_status()
+
+    def _publish(self):
+        """Daemon status plus the running folders (long lane first, then normal)."""
+        ids = [lane.folder_id for lane in self.lanes.values() if lane.busy]
+        self.store.daemon(status=self._status(), current_folder=ids[0] if ids else None,
+                          current_folders=ids)
 
     def _changed(self):
         if self.service:
@@ -118,21 +182,23 @@ class Daemon:
         if reason == self.auto_reason:
             return
         self.auto_reason = reason
-        if reason and self.child and self.config.get("pause_stops_running") and not self.stopping:
-            # Graceful stop; the interrupted run is re-queued (init keeps its approval).
-            self.auto_stop = True
-            self._terminate()
+        if reason and self.config.get("pause_stops_running") and not self.stopping:
+            # Graceful stop of every lane; interrupted runs are re-queued (init keeps its approval).
+            for lane in self.lanes.values():
+                if lane.child:
+                    lane.auto_stop = True
+                    self._terminate(lane)
         # Queued work simply waits in _pump and starts when the condition clears.
-        self.store.daemon(status="syncing" if self.child else self._idle_status())
+        self.store.daemon(status=self._status())
         self._changed()
 
-    def _auto_stopped(self, folder_id):
+    def _auto_stopped(self, lane, folder_id):
         """Handle a run that ended because pause_stops_running interrupted it."""
-        if not self.auto_stop:
+        if not lane.auto_stop:
             return False
         self.store.folder(folder_id, status=self.previous_statuses.get(folder_id, "ok"),
                           last_error=None, progress=None)
-        self._release()
+        self._release(lane)
         self.enqueue(folder_id, "resume")
         return True
 
@@ -146,26 +212,26 @@ class Daemon:
     def reload_config(self):
         try:
             candidate = configuration.load(self.paths)
-            if self.child or self.queue.current:
-                self.pending_reload = True
-                return True
-            with execution_lock(self.paths):
-                filters.prepare(self.paths, candidate, self.store)
-                if not self.reconciled:
-                    # Recover interrupted runs only when their folder lock is free.
-                    def recover(value):
-                        for folder_id, item in value["folders"].items():
-                            if folder_id not in available:
-                                continue
-                            if item["status"] in ("syncing", "queued", "init_queued"):
-                                if item.get("init_request"):
-                                    # An approved init/resync survives reboots: resume it.
-                                    item.update(status="init_queued", last_error=None, progress=None)
-                                else:
-                                    item.update(status="error", last_error=i18n.INTERRUPTED, progress=None)
-                    with unlocked_folders(self.paths, self.store.read()["folders"]) as available:
-                        self.store.update(recover)
-                    self.reconciled = True
+            # No global deferral: running jobs hold their folder lock and a private config
+            # snapshot, and prepare() leaves the filters of locked folders alone.
+            filters.prepare(self.paths, candidate, self.store)
+            if self._busy():
+                self.refilter = True  # redo for the busy folders as their jobs finish
+            if not self.reconciled:
+                # Recover interrupted runs only when their folder lock is free.
+                def recover(value):
+                    for folder_id, item in value["folders"].items():
+                        if folder_id not in available:
+                            continue
+                        if item["status"] in ("syncing", "queued", "init_queued"):
+                            if item.get("init_request"):
+                                # An approved init/resync survives reboots: resume it.
+                                item.update(status="init_queued", last_error=None, progress=None)
+                            else:
+                                item.update(status="error", last_error=i18n.INTERRUPTED, progress=None)
+                with unlocked_folders(self.paths, self.store.read()["folders"]) as available:
+                    self.store.update(recover)
+                self.reconciled = True
             if candidate["poll_interval_minutes"] != self.config["poll_interval_minutes"]:
                 self.next_poll = min(self.next_poll, time.monotonic() + candidate["poll_interval_minutes"] * 60)
             self.config = candidate
@@ -175,7 +241,7 @@ class Daemon:
             self.pending_reload = False
             self._power_changed()
             fields = {} if self.offline_since is not None else {"last_error": None}
-            self.store.daemon(status=self._idle_status(), **fields)
+            self.store.daemon(status=self._status(), **fields)
             self._changed()
             self._scan_inits()
             for folder in self.config["folders"]:
@@ -205,7 +271,7 @@ class Daemon:
             if paused:
                 self._clear_queue()
             self.pending_reload = True
-            self.store.daemon(status="syncing" if self.child else self._idle_status())
+            self.store.daemon(status=self._status())
             self._changed()
             return True
         except (configuration.ConfigError, OSError):
@@ -300,14 +366,15 @@ class Daemon:
                 self._enqueue_init(folder["id"])
 
     def _tick(self):
-        if self.progress:
-            self.progress.poll()
+        for lane in self.lanes.values():
+            if lane.progress:
+                lane.progress.poll()
         if self.stopping:
             return GLib.SOURCE_CONTINUE
-        if self.pending_reload and not self.child:
+        if self.pending_reload:
             self.reload_config()
         timestamp = time.monotonic()
-        if not self.config_valid and not self.child and timestamp >= self.next_setup_check:
+        if not self.config_valid and not self._busy() and timestamp >= self.next_setup_check:
             self.reload_config()
         if timestamp >= self.next_init_scan:
             self._scan_inits()
@@ -400,69 +467,87 @@ class Daemon:
                                   last_remote_check=(started - remote_watch.SKEW).isoformat())
 
     def _pump(self):
-        if (self.child or self.stopping or self.pending_reload or not self.config_valid
-                or self.config["paused"] or self.auto_reason):
+        if (self.stopping or self.pending_reload or not self.config_valid
+                or self.config["paused"] or self.auto_reason or not self.queue.pending):
             return
-        if not self.queue.pending:
+        for lane in self.lanes.values():
+            if not lane.busy:
+                self._start(lane)
+
+    def _start(self, lane):
+        parallel = self._parallel()
+        if not any(self._lane_for(reasons) == lane.name for reasons in self.queue.pending.values()):
             return
+        if not parallel and (lane.name != "long" or self._busy()):
+            return  # single-lane mode: strictly one job at a time
         try:
-            self.lock = execution_lock(self.paths)
-            self.lock.__enter__()
+            # Single-lane mode holds both lane locks, so a direct CLI run on any lane excludes it.
+            lane.lock = execution_lock(self.paths, lane=lane.name if parallel else None)
+            lane.lock.__enter__()
         except BusyError:
-            self.lock = None
+            lane.lock = None
             return
-        # Refresh config and state under the lock before selecting any work.
+        # Refresh config and state under the lane lock before selecting any work.
         try:
             candidate = configuration.load(self.paths)
-            self.digests = filters.prepare(self.paths, candidate, self.store)
+            digests = filters.prepare(self.paths, candidate, self.store)
             self.config = candidate
+            lane.config = candidate
             self.watchers.configure(candidate)
-            entry = self.queue.pop()
-            folder = next((f for f in self.config["folders"] if f["id"] == entry[0]), None)
-            if folder is None:
-                self._release()
+            entry = self.queue.pop(lambda reasons: self._lane_for(reasons) == lane.name, concurrent=True)
+            if entry is None:
+                self._release(lane)
                 return
-            if "init" in entry[1]:
+            lane.folder_id, lane.reasons = entry
+            lane.digest = digests.get(lane.folder_id)
+            folder = next((f for f in candidate["folders"] if f["id"] == lane.folder_id), None)
+            if folder is None:
+                self._release(lane)
+                return
+            if "init" in lane.reasons:
                 item = self.store.read()["folders"].get(folder["id"], {})
                 if not self._init_ready(folder, item):
                     if item.get("status") == "init_queued" and not item.get("init_request"):
                         self.store.folder(folder["id"], status="ok" if folder["initialized"] else "not_initialized")
-                    self._release()
+                    self._release(lane)
                     return
-                self.job = dict(kind=item["init_request"].get("kind", "init"),
+                lane.job = dict(kind=item["init_request"].get("kind", "init"),
                                 request=item["init_request"])
             elif not self._eligible(folder):
                 if self.store.read()["folders"][folder["id"]]["status"] == "queued":
                     self.store.folder(folder["id"], status="ok")
-                self._release()
+                self._release(lane)
                 return
-            # The engine lock serializes globally; this documents the active pair
-            # for other clients that only need to check a particular folder.
-            self.folder_lock = folder_lock(self.paths, folder["id"])
+            # The folder lock keeps the other lane, the CLI and filters.prepare off this folder.
+            lane.folder_lock = folder_lock(self.paths, folder["id"])
             rclone.check_local(folder)
-            self.active_folder = dict(folder)
+            lane.folder = dict(folder)
             self.watchers.begin(folder["id"])
-            self.log = rclone.new_log(self.paths, folder["id"])
+            lane.log = rclone.new_log(self.paths, folder["id"])
             self.store.folder(folder["id"], status="syncing", progress=None,
-                              last_sync_started=now(), last_log=str(self.log))
-            self.store.daemon(status="syncing", current_folder=folder["id"])
-            if self.job:
-                self._init_begin()
+                              last_sync_started=now(), last_log=str(lane.log))
+            self._publish()
+            if lane.job:
+                self._init_begin(lane)
                 return
-            self.child = rclone.AsyncProcess(rclone.probe_command(self.config), self.log, self._probed)
+            lane.child = rclone.AsyncProcess(rclone.probe_command(lane.config), lane.log,
+                                             lambda code, output: self._probed(lane, code, output))
+        except BusyError:
+            # Another process holds this folder right now: keep it queued for the next pump.
+            self._release(lane, requeue=True)
         except (configuration.ConfigError, StateError, OSError, ValueError) as error:
-            folder_id = self.queue.current
-            if folder_id and self.job:
+            folder_id = lane.folder_id
+            if folder_id and lane.job:
                 self._init_record_failure(folder_id, str(error))
             elif folder_id:
                 self.store.folder(folder_id, status="error", last_error=str(error))
-                self._notify(folder_id)
-            self._release()
+                self._notify(lane)
+            self._release(lane)
 
-    def _probed(self, code, output):
-        self.child = None
-        folder_id = self.active_folder["id"]
-        if code and self._auto_stopped(folder_id):
+    def _probed(self, lane, code, output):
+        lane.child = None
+        folder_id = lane.folder["id"]
+        if code and self._auto_stopped(lane, folder_id):
             return
         if code:
             if rclone.is_network_error(output):
@@ -478,50 +563,50 @@ class Daemon:
                 self.store.daemon(last_error=None)
                 self.store.folder(folder_id, status="error", last_error=i18n.PROBE_ERROR,
                                   last_exit_code=code, last_sync_finished=now())
-                self._notify(folder_id)
-            self._release()
+                self._notify(lane)
+            self._release(lane)
             return
         self.offline_since = None
         self.notifier.offline(None)
         self.store.daemon(last_error=None)
         if self.stopping:
             self.store.folder(folder_id, status="error", last_error=i18n.INTERRUPTED)
-            self._release()
+            self._release(lane)
             return
-        command = rclone.bisync_command(self.paths, self.config, self.active_folder, self.log)
-        self.progress = rclone.LogProgress(self.log, lambda data: self.store.progress(folder_id, data))
-        self.child = rclone.AsyncProcess(command, self.log, self._synced)
+        command = rclone.bisync_command(self.paths, lane.config, lane.folder, lane.log)
+        lane.progress = rclone.LogProgress(lane.log, lambda data: self.store.progress(folder_id, data))
+        lane.child = rclone.AsyncProcess(command, lane.log, lambda c, o: self._synced(lane, c, o))
 
-    def _synced(self, code, output):
-        self.child = None
-        folder_id = self.active_folder["id"]
-        if code and self._auto_stopped(folder_id):
+    def _synced(self, lane, code, output):
+        lane.child = None
+        folder_id = lane.folder["id"]
+        if code and self._auto_stopped(lane, folder_id):
             return
         try:
-            result = rclone.parse_log(self.log, code)
-            rclone.apply_result(self.store, folder_id, result, folder=self.active_folder)
+            result = rclone.parse_log(lane.log, code)
+            rclone.apply_result(self.store, folder_id, result, folder=lane.folder)
             if code == 0 and not result.blocked_delete:
                 # Our own uploads are older than this moment; later remote changes are newer.
                 self.store.folder(folder_id, last_full_sync=now(), last_remote_check=now())
                 self.checker.mark_stale()
-            self._notify(folder_id)
+            self._notify(lane)
         except (OSError, StateError):
             # A state/log failure must never leave a daemon silently retrying.
             self.config_valid = False
             self.stopping = True
         finally:
-            self._release()
+            self._release(lane)
 
     # --- init / resync jobs: approved by the user, executed (and resumed) by the daemon ---
 
-    def _init_begin(self):
-        folder, request = self.active_folder, self.job["request"]
-        self.job["fingerprint"] = configuration.pair_hash(self.config, folder)
-        if request.get("filters_sha256") != self.digests.get(folder["id"]) or request.get("pair_sha256") != self.job["fingerprint"]:
-            self._init_needs_approval(i18n.INIT_CONFIG_CHANGED)
+    def _init_begin(self, lane):
+        folder, request = lane.folder, lane.job["request"]
+        lane.job["fingerprint"] = configuration.pair_hash(lane.config, folder)
+        if request.get("filters_sha256") != lane.digest or request.get("pair_sha256") != lane.job["fingerprint"]:
+            self._init_needs_approval(lane, i18n.INIT_CONFIG_CHANGED)
             return
-        command = [rclone.executable(self.config), "mkdir", configuration.remote_path(self.config, folder)]
-        self.child = rclone.AsyncProcess(command, self.log, self._init_mkdir_done)
+        command = [rclone.executable(lane.config), "mkdir", configuration.remote_path(lane.config, folder)]
+        lane.child = rclone.AsyncProcess(command, lane.log, lambda c, o: self._init_mkdir_done(lane, c, o))
 
     def _log_tail(self, path):
         try:
@@ -532,105 +617,106 @@ class Daemon:
         except OSError:
             return ""
 
-    def _init_mkdir_done(self, code, output):
-        self.child = None
+    def _init_mkdir_done(self, lane, code, output):
+        lane.child = None
         if code or self.stopping:
-            self._init_failed(code, output, self.log)
+            self._init_failed(lane, code, output, lane.log)
             return
         self.offline_since = None
         self.notifier.offline(None)
         self.store.daemon(last_error=None)
-        folder = self.active_folder
+        folder = lane.folder
         item = self.store.read()["folders"][folder["id"]]
-        if rclone.dry_run_valid(item, self.digests.get(folder["id"]), self.job["fingerprint"]):
+        if rclone.dry_run_valid(item, lane.digest, lane.job["fingerprint"]):
             # The approval is fresh and no run has started since: nothing new to check.
-            self._init_start_real()
+            self._init_start_real(lane)
             return
         # Resuming (reboot, logout, retry): the world may have changed since approval.
-        self.job["dry_log"] = rclone.new_log(self.paths, folder["id"])
-        command = rclone.bisync_command(self.paths, self.config, folder, self.job["dry_log"],
+        lane.job["dry_log"] = rclone.new_log(self.paths, folder["id"])
+        command = rclone.bisync_command(self.paths, lane.config, folder, lane.job["dry_log"],
                                        resync=True, dry_run=True)
-        self.child = rclone.AsyncProcess(command, self.job["dry_log"], self._init_dry_done)
+        lane.child = rclone.AsyncProcess(command, lane.job["dry_log"],
+                                         lambda c, o: self._init_dry_done(lane, c, o))
 
-    def _init_dry_done(self, code, output):
-        self.child = None
-        log = self.job["dry_log"]
+    def _init_dry_done(self, lane, code, output):
+        lane.child = None
+        log = lane.job["dry_log"]
         if code or self.stopping:
-            self._init_failed(code, output, log)
+            self._init_failed(lane, code, output, log)
             return
         result = rclone.parse_log(log, code, dry_run=True)
-        if result.blocked_delete or not init_flow.resume_is_safe(result, self.job["request"]["approved_plan"]):
-            self._init_needs_approval(i18n.INIT_NEEDS_APPROVAL)
+        if result.blocked_delete or not init_flow.resume_is_safe(result, lane.job["request"]["approved_plan"]):
+            self._init_needs_approval(lane, i18n.INIT_NEEDS_APPROVAL)
         else:
-            self._init_start_real()
+            self._init_start_real(lane)
 
-    def _init_start_real(self):
-        folder = self.active_folder
+    def _init_start_real(self, lane):
+        folder = lane.folder
         try:
             marker = rclone.create_check(folder)
         except (ValueError, OSError) as error:
             self._init_record_failure(folder["id"], str(error))
-            self._release()
+            self._release(lane)
             return
         self.store.folder(folder["id"], dry_run_ok_at=None)
-        command = [rclone.executable(self.config), "copyto", str(marker),
-                   configuration.remote_path(self.config, folder) + "/" + rclone.CHECK_FILENAME,
+        command = [rclone.executable(lane.config), "copyto", str(marker),
+                   configuration.remote_path(lane.config, folder) + "/" + rclone.CHECK_FILENAME,
                    "--skip-links", "--drive-skip-gdocs"]
-        self.child = rclone.AsyncProcess(command, self.log, self._init_marker_done)
+        lane.child = rclone.AsyncProcess(command, lane.log, lambda c, o: self._init_marker_done(lane, c, o))
 
-    def _init_marker_done(self, code, output):
-        self.child = None
+    def _init_marker_done(self, lane, code, output):
+        lane.child = None
         if code or self.stopping:
-            self._init_failed(code, output, self.log)
+            self._init_failed(lane, code, output, lane.log)
             return
-        folder = self.active_folder
-        command = rclone.bisync_command(self.paths, self.config, folder, self.log, resync=True)
-        self.progress = rclone.LogProgress(self.log, lambda data: self.store.progress(folder["id"], data))
-        self.child = rclone.AsyncProcess(command, self.log, self._init_synced)
+        folder = lane.folder
+        command = rclone.bisync_command(self.paths, lane.config, folder, lane.log, resync=True)
+        lane.progress = rclone.LogProgress(lane.log, lambda data: self.store.progress(folder["id"], data))
+        lane.child = rclone.AsyncProcess(command, lane.log, lambda c, o: self._init_synced(lane, c, o))
 
-    def _init_synced(self, code, output):
-        self.child = None
-        folder_id = self.active_folder["id"]
+    def _init_synced(self, lane, code, output):
+        lane.child = None
+        folder_id = lane.folder["id"]
         if code or self.stopping:
-            self._init_failed(code, output, self.log)
+            self._init_failed(lane, code, output, lane.log)
             return
         try:
-            result = rclone.parse_log(self.log, code)
+            result = rclone.parse_log(lane.log, code)
             if result.blocked_delete:
-                self._init_needs_approval(i18n.DELETE_BLOCKED)
+                self._init_needs_approval(lane, i18n.DELETE_BLOCKED)
                 return
             try:
                 with configuration.edit_lock(self.paths):
                     current = configuration.load(self.paths)
                     current_folder = configuration.folder_by_id(current, folder_id)
-                    if (configuration.pair_hash(current, current_folder) != self.job["fingerprint"]
+                    if (configuration.pair_hash(current, current_folder) != lane.job["fingerprint"]
                             or filters.render(configuration.effective_excludes(current, current_folder))
-                            != filters.render(configuration.effective_excludes(self.config, self.active_folder))):
+                            != filters.render(configuration.effective_excludes(lane.config, lane.folder))):
                         raise ValueError(i18n.CHANGED_DURING_RUN)
                     current_folder["initialized"] = True
                     configuration.save(self.paths, current)
             except ValueError:
-                self._init_needs_approval(i18n.INIT_CONFIG_CHANGED)
+                self._init_needs_approval(lane, i18n.INIT_CONFIG_CHANGED)
                 return
-            rclone.apply_result(self.store, folder_id, result, folder=self.active_folder)
+            rclone.apply_result(self.store, folder_id, result, folder=lane.folder)
             self.store.folder(folder_id, init_request=None, init_attempts=0, init_next_retry_at=None)
-            self._notify(folder_id)
-            self._release()
+            self._notify(lane)
+            self._release(lane)
         except (OSError, StateError, configuration.ConfigError):
             self.config_valid = False
             self.stopping = True
-            self._release()
+            self._release(lane)
 
-    def _init_failed(self, code, output, log):
-        folder_id = self.active_folder["id"]
-        if self.auto_stop:
+    def _init_failed(self, lane, code, output, log):
+        folder_id = lane.folder["id"]
+        if lane.auto_stop:
             self.store.folder(folder_id, status="init_queued", last_error=None, progress=None)
-            self._release()
+            self._release(lane)
             return
         if self.stopping:
             # Interrupted by shutdown/logout: the approval stays, the next start resumes.
             self.store.folder(folder_id, status="init_queued", last_error=None)
-            self._release()
+            self._release(lane)
             return
         if rclone.is_network_error(output + self._log_tail(log)):
             if self.offline_since is None:
@@ -639,11 +725,11 @@ class Daemon:
             # Waiting for the network does not use up a retry.
             self.store.folder(folder_id, status="init_queued", last_error=i18n.PROBE_ERROR,
                               init_next_retry_at=self._later(INIT_OFFLINE_WAIT))
-            self._release()
+            self._release(lane)
             return
         result = rclone.parse_log(log, code)
         self._init_record_failure(folder_id, result.last_error or i18n.SYNC_ERROR, code)
-        self._release()
+        self._release(lane)
 
     def _later(self, seconds):
         return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
@@ -663,36 +749,52 @@ class Daemon:
             self.store.folder(folder_id, status="init_queued", init_attempts=attempts,
                               init_next_retry_at=self._later(INIT_BACKOFF[attempts - 1]), **common)
 
-    def _init_needs_approval(self, message):
-        folder = self.active_folder
+    def _init_needs_approval(self, lane, message):
+        folder = lane.folder
         self.store.folder(folder["id"], status="needs_approval", last_error=message,
                           last_sync_finished=now(), dry_run_ok_at=None, init_next_retry_at=None)
         self.notifier.init_needs_approval(folder["remote_name"])
-        self._release()
+        self._release(lane)
 
-    def _notify(self, folder_id):
-        folder = configuration.folder_by_id(self.config, folder_id)
-        self.notifier.folder(folder_id, folder["remote_name"], self.store.read()["folders"][folder_id])
+    def _notify(self, lane):
+        folder = lane.folder or next((f for f in self.config["folders"] if f["id"] == lane.folder_id), None)
+        if folder is not None:
+            self.notifier.folder(folder["id"], folder["remote_name"],
+                                 self.store.read()["folders"][folder["id"]])
 
-    def _release(self):
-        if self.active_folder:
-            self.store.folder(self.active_folder["id"], progress=None)
-            self.watchers.end(self.active_folder["id"])
-        self.progress = None
-        self.job = None
-        self.auto_stop = False
-        self.previous_statuses.pop(self.queue.current, None)
-        self.queue.finish()
-        self.active_folder = None
-        if self.folder_lock:
-            self.folder_lock.close()
-            self.folder_lock = None
-        if self.lock:
-            self.lock.__exit__(None, None, None)
-            self.lock = None
-        self.store.daemon(current_folder=None, status=self._idle_status())
-        if self.stopping:
+    def _release(self, lane, requeue=False):
+        folder_id = lane.folder_id
+        if lane.folder:
+            self.store.folder(lane.folder["id"], progress=None)
+            self.watchers.end(lane.folder["id"])
+        if folder_id is not None:
+            if requeue:
+                self.queue.requeue(folder_id, lane.reasons or {"manual"})
+            else:
+                self.previous_statuses.pop(folder_id, None)
+                self.queue.finish(folder_id)
+        folder_lock_held, lock = lane.folder_lock, lane.lock
+        lane.reset()
+        if folder_lock_held:
+            folder_lock_held.close()
+        if lock:
+            lock.__exit__(None, None, None)
+        if self.refilter:
+            self._reprepare()  # skips folders that are still running
+            if not self._busy():
+                self.refilter = False
+        self._publish()
+        if self.stopping and not self._busy():
             self.loop.quit()
+
+    def _reprepare(self):
+        """Regenerate filters that a reload had to leave alone because a job was using them."""
+        if not self.config_valid or self.stopping:
+            return
+        try:
+            filters.prepare(self.paths, configuration.load(self.paths), self.store)
+        except (configuration.ConfigError, StateError, OSError):
+            pass  # the next reload reports it
 
     def _config_changed(self, *_):
         self.pending_reload = True
@@ -708,26 +810,29 @@ class Daemon:
             self.stopping = True
             self.checker.cancel()
             self._clear_queue()
-            if self.child:
+            if any(lane.child for lane in self.lanes.values()):
+                # Let running jobs finish for a minute, then stop every lane's child.
                 self.sources.append(GLib.timeout_add_seconds(60, self._terminate))
-            else:
+            elif not self._busy():
                 self.loop.quit()
         return GLib.SOURCE_CONTINUE
 
-    def _terminate(self):
-        if self.child:
-            self.child.terminate()
-            self.sources.append(GLib.timeout_add_seconds(5, self._kill))
+    def _terminate(self, lane=None):
+        """SIGTERM one lane's child (or all of them), SIGKILL if it lingers."""
+        for item in ([lane] if lane else list(self.lanes.values())):
+            if item.child:
+                item.child.terminate()
+                self.sources.append(GLib.timeout_add_seconds(5, self._kill, item))
         return GLib.SOURCE_REMOVE
 
-    def _kill(self):
-        if self.child:
-            self.child.kill()
+    def _kill(self, lane):
+        if lane.child:
+            lane.child.kill()
         return GLib.SOURCE_REMOVE
 
     def run(self):
         self.service = Service(self)
-        self.store.daemon(pid=os.getpid(), started_at=now(), current_folder=None)
+        self.store.daemon(pid=os.getpid(), started_at=now(), current_folder=None, current_folders=[])
         self.reload_config()
         self.monitor = Gio.File.new_for_path(str(self.paths.config_dir)).monitor_directory(
             Gio.FileMonitorFlags.NONE, None)
@@ -747,7 +852,7 @@ class Daemon:
             for source in self.sources:
                 if GLib.MainContext.default().find_source_by_id(source):
                     GLib.source_remove(source)
-            self.store.daemon(pid=None, current_folder=None, status=self._idle_status())
+            self.store.daemon(pid=None, current_folder=None, current_folders=[], status=self._idle_status())
             self.service.close()
 
 

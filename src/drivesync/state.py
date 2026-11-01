@@ -51,15 +51,30 @@ class FileLock:
         self.close()
 
 
+LANES = ("long", "normal")
+
+
 @contextmanager
-def execution_lock(paths, folder_id=None):
-    # Global first, folder second: one ordering for daemon and direct CLI runs.
-    with FileLock(paths.state_dir / "engine.lock"):
-        if folder_id is None:
-            yield
-        else:
-            with folder_lock(paths, folder_id):
-                yield
+def execution_lock(paths, folder_id=None, lane=None):
+    """Hold an execution lane (and optionally one folder) against other DriveSync processes.
+
+    Two lanes exist: "long" (initial sync / resync, the historic engine.lock) and "normal"
+    (routine bisync).  lane=None takes both, i.e. exclusive use of the whole engine; this is
+    what setup-remote and single-lane mode use.  Order: long, normal, then the folder lock,
+    one ordering for daemon and direct CLI runs.
+    """
+    if lane not in (None, *LANES):
+        raise ValueError(lane)
+    with ExitStack() as stack:
+        for name in LANES if lane is None else (lane,):
+            stack.enter_context(lane_lock(paths, name))
+        if folder_id is not None:
+            stack.enter_context(folder_lock(paths, folder_id))
+        yield
+
+
+def lane_lock(paths, lane):
+    return FileLock(paths.state_dir / ("engine.lock" if lane == "long" else "engine-normal.lock"))
 
 
 def folder_lock(paths, folder_id):
@@ -93,7 +108,7 @@ def update_state():
 
 
 def empty_state():
-    return {"daemon": {"status": "idle", "current_folder": None, "pid": None,
+    return {"daemon": {"status": "idle", "current_folder": None, "current_folders": [], "pid": None,
                        "started_at": None, "last_error": None}, "filters_sha256": None,
             "folders": {}, "recent_conflicts": [], "update": update_state()}
 

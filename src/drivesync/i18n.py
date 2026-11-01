@@ -791,6 +791,11 @@ _STRINGS = {
     "UPDATE_START_FAILED": (
         'Güncelleme arka planda başlatılamadı (systemd-run).',
         'The update could not be started in the background (systemd-run).'),
+
+    # --- parallel lanes ---
+    "TRAY_SYNCING_MANY": (
+        'Eşitleniyor: {names}',
+        'Syncing: {names}'),
 }
 
 HELP = _Localized({

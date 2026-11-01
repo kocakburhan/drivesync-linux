@@ -143,8 +143,9 @@ class DaemonTests(IsolatedTest):
         self.config["excludes"].append("*.pending")
         config.save(self.paths, self.config)
         self.assertTrue(daemon.reload_config())
-        self.assertTrue(daemon.pending_reload)
+        # The reload itself applies at once, but a running folder keeps its filter file.
         self.assertEqual(self.paths.filters_for("docs").read_text(), old_filters)
+        self.assertTrue(daemon.refilter)
         drain_until(lambda: daemon.child is None)
         daemon._tick()
         self.assertIn("- *.pending", self.paths.filters_for("docs").read_text())

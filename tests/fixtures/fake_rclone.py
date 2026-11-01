@@ -48,6 +48,8 @@ def main():
         options = settings.get("query", {})
     if command == "bisync" and "--dry-run" in argv:
         options = settings.get("dry_run", options)
+    elif command == "bisync" and "--resync" in argv:
+        options = settings.get("resync", options)  # real init/resync runs, distinct from routine syncs
     code = options.get("code", 0)
     remote_markers = root / "remote-markers.json"
     markers = json.loads(remote_markers.read_text()) if remote_markers.exists() else []

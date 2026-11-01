@@ -160,6 +160,10 @@ pencerede aynı işlem **Yeniden eşitle** düğmesidir.
 Pencerede genel/klasör durumu, canlı ilerleme, son çakışmalar, kayıtlar ve ayarlar bulunur.
 Tepsiden **Şimdi eşitle**, **Duraklat / Devam et**, **Drive'da aç**, **Pencereyi aç** kullanılabilir.
 Duraklatma çalışan aktarımı iptal etmez; yeni otomatik işleri durdurur.
+Servis iki şeritle çalışır: uzun süren ilk eşitleme/yeniden eşitleme bir şeritte, diğer klasörlerin olağan eşitlemesi
+öteki şeritte yürür; böylece büyük bir yükleme sırasında başka klasörlerin değişiklikleri Drive'a gecikmeden ulaşır.
+Aynı klasörde asla iki iş çalışmaz. `drivesync-cli config set parallel_lanes false` eski tek şerit davranışını geri getirir;
+`bwlimit` ayarı her işe ayrı uygulanır.
 Nautilus sağ tık menüsünde **DriveSync: Şimdi eşitle** ve **DriveSync: Drive'da göster** vardır;
 ikincisi dosya adıyla Drive araması açar. Durum işaretleri yaklaşık yerel bilgidir; [ayrıntılar](docs/NAUTILUS.md).
 

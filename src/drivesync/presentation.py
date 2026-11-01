@@ -176,6 +176,10 @@ def present(status=None, now=None):
         text = (i18n.TRAY_SYNCING if syncing.get("initialized", False)
                 else i18n.TRAY_INITIAL_SYNCING)
         line = text.format(name=syncing.get("remote_name", syncing["id"]))
+        others = [next((f.get("remote_name", f["id"]) for f in configured if f["id"] == other), other)
+                  for other, item in folders.items() if other != syncing_id and item.get("status") == "syncing"]
+        if others:  # both execution lanes are busy
+            line = i18n.TRAY_SYNCING_MANY.format(names=", ".join([syncing.get("remote_name", syncing["id"])] + others))
         progress = progress_text(folders[syncing_id].get("progress"), compact=True)
         return Presentation(line + (" · " + progress if progress else ""),
                             "syncing", paused)

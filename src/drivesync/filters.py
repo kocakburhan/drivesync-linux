@@ -44,7 +44,9 @@ def _legacy_md5(paths, config):
 def prepare(paths, config, store, *, owned_folder_id=None):
     """Write one filters file per folder; return {folder id: digest}.
 
-    Caller must hold engine.lock, so an active run's filters never change.
+    Only folders whose lock is free (or named by owned_folder_id) are rewritten and
+    reconciled, so the filters of a running job never change under it; the others are
+    picked up by the next call. Callers need not hold an execution lane.
     The digest is the hash of the file content, which for a folder without own
     patterns equals the digest of the former single global file. That is what
     keeps existing installs from a needless resync (rclone bisync itself hashes
@@ -57,20 +59,23 @@ def prepare(paths, config, store, *, owned_folder_id=None):
         digests[folder["id"]] = hashlib.sha256(content.encode()).hexdigest()
     global_digest = digest_of(config["excludes"])
     legacy_md5 = _legacy_md5(paths, config)
-    for folder_id, content in contents.items():
-        target = paths.filters_for(folder_id)
-        try:
-            current = target.read_text(encoding="utf-8")
-        except OSError:
-            current = None
-        if current != content:
-            atomic_write(target, content)
-        # rclone bisync keeps the hash of the filter rules in "<filters file>.md5"
-        # (keyed by the file path). Carry the old one over for an unchanged rule set,
-        # otherwise the path move alone would demand --resync.
-        sidecar = target.with_name(target.name + ".md5")
-        if legacy_md5 is not None and not sidecar.exists():
-            atomic_write(sidecar, legacy_md5)
+
+    def write_files(folder_ids):
+        for folder_id in folder_ids:
+            content = contents[folder_id]
+            target = paths.filters_for(folder_id)
+            try:
+                current = target.read_text(encoding="utf-8")
+            except OSError:
+                current = None
+            if current != content:
+                atomic_write(target, content)
+            # rclone bisync keeps the hash of the filter rules in "<filters file>.md5"
+            # (keyed by the file path). Carry the old one over for an unchanged rule set,
+            # otherwise the path move alone would demand --resync.
+            sidecar = target.with_name(target.name + ".md5")
+            if legacy_md5 is not None and not sidecar.exists():
+                atomic_write(sidecar, legacy_md5)
     if paths.filters_dir.is_dir():
         for stale in paths.filters_dir.glob("*.txt*"):
             if stale.name.removesuffix(".md5").removesuffix(".txt") not in contents:
@@ -111,6 +116,9 @@ def prepare(paths, config, store, *, owned_folder_id=None):
             value["filters_sha256"] = global_digest
     with unlocked_folders(paths, (f["id"] for f in config["folders"]),
                           owned_folder_id=owned_folder_id) as available:
+        # A folder whose lock is held has a running job (daemon lane or CLI) that reads its
+        # filter file: leave file, baseline hash and status alone until a later prepare.
+        write_files(f["id"] for f in config["folders"] if f["id"] in available)
         store.update(reconcile)
     return digests
 

@@ -182,7 +182,14 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
         return 1
 
     paths.ensure()
-    with execution_lock(paths, folder_id):
+    # Lane: init/resync (and their previews) take the long lane, force-sync the normal lane, so
+    # a foreground run excludes only what it would collide with. With parallel_lanes off the
+    # daemon runs one job at a time and the CLI takes both lanes. The folder lock (second)
+    # keeps the CLI and the daemon off the same folder either way.
+    lane = "normal" if force else "long"
+    if not configuration.load(paths, create=False).get("parallel_lanes", True):
+        lane = None
+    with execution_lock(paths, folder_id, lane=lane):
         config = configuration.load(paths)
         folder = configuration.folder_by_id(config, folder_id)
         if not folder["enabled"]:
@@ -297,7 +304,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
 SAFE_KEYS = ("root_folder", "language", "poll_interval_minutes", "full_sync_interval_minutes", "debounce_seconds",
              "max_delete_percent", "transfers", "init_transfers", "checkers", "bwlimit",
              "pause_on_battery", "pause_on_metered", "pause_stops_running", "assumed_upload_bytes_per_second",
-             "check_updates")
+             "check_updates", "parallel_lanes")
 
 UPDATE_UNITS = ("drivesync.service", "drivesync-tray.service")
 

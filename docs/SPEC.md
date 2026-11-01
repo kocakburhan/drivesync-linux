@@ -51,6 +51,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "pause_on_battery": false,
   "pause_on_metered": true,
   "pause_stops_running": false,
+  "parallel_lanes": true,
   "assumed_upload_bytes_per_second": 1048576,
   "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
   "paused": false,
@@ -167,8 +168,23 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
 
 - Single process, GLib main loop, runs as systemd user service.
 - Exactly one instance (own the D-Bus name; exit if taken).
-- Sync queue: folders are synced **one at a time** (global serialization), using `Gio.Subprocess` (non-blocking).
-  Duplicate queue entries are merged.
+- Sync queue and **execution lanes**, using `Gio.Subprocess` (non-blocking). Duplicate queue entries are merged.
+  Two lanes, each running at most one job: **long** (init/resync, queue entries with reason `init`) and **normal**
+  (routine bisync). The lanes may overlap, so routine syncs of other initialized folders are not starved by a
+  multi-hour initial sync. Invariants: never two jobs on one folder (a folder is pending or running, once; the folder
+  lock is held for the whole job), and a folder with an `init_request` is never eligible for the normal lane.
+  Cross-process locks: `engine.lock` (long lane), `engine-normal.lock` (normal lane), then the per-folder lock; order
+  long, normal, folder. `execution_lock(paths, folder_id, lane)` with `lane=None` takes both lanes (setup-remote,
+  single-lane mode). Direct CLI runs (`init`/`resync` incl. `--dry-run`, foreground) take the long lane, `force-sync` the
+  normal lane, and the folder lock, so they refuse (`busy`) while the daemon works on that folder or fills that lane.
+  Each lane keeps a private config snapshot taken at job start; a config reload applies at once and
+  `filters.prepare` only rewrites filter files / baseline hashes of folders whose lock is free, the others are redone
+  when their job ends (`refilter`). Manual or auto-pause stop new jobs in both lanes (`pause_stops_running` terminates
+  both children; init jobs keep their approval). Shutdown waits up to 60 s, then terminates both children.
+  Config `parallel_lanes` (bool, default true): `false` runs everything in the long lane, holding both lock files, i.e.
+  one job at a time. With both lanes busy a configured `bwlimit` applies to each job separately.
+  `daemon.current_folder` is the long-lane folder if any else the normal-lane folder; `daemon.current_folders` lists all.
+  Cheap remote change checks (`rclone backend query`) are not jobs and never wait for a lane.
 - Timer: every `poll_interval_minutes`, enqueue all `enabled && initialized && !needs_resync && status != blocked_delete`
   folders unless `paused`.
 - Remote change detection (`remote_watch.py`): on each poll a folder whose last full bisync is younger than
@@ -201,7 +217,7 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
 
 ```json
 {
-  "daemon": {"status": "idle|syncing|paused|auto_paused|offline|error", "current_folder": null, "pid": 123, "started_at": "ISO", "last_error": null},
+  "daemon": {"status": "idle|syncing|paused|auto_paused|offline|error", "current_folder": null, "current_folders": [], "pid": 123, "started_at": "ISO", "last_error": null},
   "filters_sha256": "…",
   "recent_conflicts": [
     {"path": "nested/report.txt", "folder": "documents", "folder_name": "Documents",
@@ -320,8 +336,8 @@ The GUI supplies --yes the same way.
 
 On a real request the CLI stores, after the mandatory successful dry-run (`folders.<id>.dry_run_plan`):
 `folders.<id>.init_request = {"kind": "init"|"resync", "approved_at": ISO, "approved_plan": {"to_remote", "to_local",
-"deletes"}, "filters_sha256", "pair_sha256"}` and status `init_queued`. The daemon runs it as a job in its serialized
-queue (same engine/folder locks, `init_transfers`, live progress): `mkdir`, optional fresh dry-run, marker `copyto`,
+"deletes"}, "filters_sha256", "pair_sha256"}` and status `init_queued`. The daemon runs it as a job in the long lane
+(its own lane lock plus the folder lock, `init_transfers`, live progress): `mkdir`, optional fresh dry-run, marker `copyto`,
 `bisync --resync`. On success the folder is marked initialized and `init_request` is cleared.
 On daemon start (and after interrupted runs, which are put back to `init_queued`) every pending request first runs a
 FRESH dry-run (skipped only when the approval's own dry-run is still valid and no run has started). It resumes
