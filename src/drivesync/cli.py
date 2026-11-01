@@ -85,6 +85,14 @@ def parser():
                     sub.add_argument("id", help=i18n.FOLDER_HELP)
                 if action == "remove":
                     sub.add_argument("--yes", action="store_true", help=i18n.YES_HELP)
+            excludes = actions.add_parser("excludes", description=i18n.HELP["folder"])
+            excludes.add_argument("id", help=i18n.FOLDER_HELP)
+            edits = excludes.add_subparsers(dest="exclude_action", required=True, title=i18n.COMMAND)
+            for action in ("list", "add", "remove"):
+                sub = edits.add_parser(action, description=i18n.HELP["folder"])
+                sub.add_argument("--json", action="store_true", help=i18n.MACHINE_JSON_HELP)
+                if action != "list":
+                    sub.add_argument("pattern", help=i18n.EXCLUDE_HELP)
         if command == "config":
             actions = child.add_subparsers(dest="action", required=True, title=i18n.COMMAND)
             for action in ("get", "set"):
@@ -141,7 +149,8 @@ def _check_unchanged(paths, config, folder, digest):
     current = configuration.load(paths)
     current_folder = configuration.folder_by_id(current, folder["id"])
     if (configuration.pair_hash(current, current_folder) != configuration.pair_hash(config, folder)
-            or filters.render(current["excludes"]) != filters.render(config["excludes"])):
+            or filters.render(configuration.effective_excludes(current, current_folder))
+            != filters.render(configuration.effective_excludes(config, folder))):
         raise ValueError(i18n.CHANGED_DURING_RUN)
     return current, current_folder
 
@@ -161,7 +170,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
             raise ValueError(i18n.DISABLED)
         rclone.check_local(folder)
         store = StateStore(paths)
-        digest = filters.prepare(paths, config, store, owned_folder_id=folder_id)
+        digest = filters.prepare(paths, config, store, owned_folder_id=folder_id)[folder_id]
         item = store.read()["folders"][folder_id]
         fingerprint = configuration.pair_hash(config, folder)
         if force:
@@ -296,6 +305,8 @@ def folder_command(paths, args):
     from . import app_model
 
     action = "add" if args.command == "add-folder" else args.action
+    if action == "excludes":
+        return folder_excludes_command(paths, args)
     if action == "list":
         value = dict(folders=configuration.load(paths, create=False)["folders"])
     else:
@@ -329,6 +340,37 @@ def folder_command(paths, args):
             print(json.dumps(folder, ensure_ascii=False))
     else:
         print(i18n.CLI_DONE)
+    return 0
+
+
+def folder_excludes_command(paths, args):
+    def change(data):
+        folder = configuration.folder_by_id(data, args.id)
+        patterns = folder.setdefault("excludes", [])
+        if args.exclude_action == "add":
+            if args.pattern not in patterns:
+                patterns.append(args.pattern)
+        elif args.exclude_action == "remove":
+            if args.pattern not in patterns:
+                raise ValueError(i18n.CONFIG_ERROR.format(field="folders.excludes"))
+            patterns.remove(args.pattern)
+            if not patterns:
+                del folder["excludes"]
+        configuration.validate(data)
+        return dict(id=args.id, patterns=list(folder.get("excludes", [])),
+                    effective=configuration.effective_excludes(data, folder))
+    if args.exclude_action == "list":
+        value = change(configuration.load(paths, create=False))
+    else:
+        with configuration.edit_lock(paths):
+            data = configuration.load(paths)
+            value = change(data)
+            configuration.save(paths, data)
+        reload_daemon()
+    if args.json:
+        emit(value)
+    else:
+        print(json.dumps(value, ensure_ascii=False))
     return 0
 
 
@@ -385,7 +427,7 @@ def submit_init(paths, args):
         rclone.check_local(folder)
         store = StateStore(paths)
         item = store.read()["folders"].get(args.id, folder_state())
-        digest = hashlib.sha256(filters.render(data["excludes"]).encode()).hexdigest()
+        digest = filters.digest_of(configuration.effective_excludes(data, folder))
         fingerprint = configuration.pair_hash(data, folder)
         plan = item.get("dry_run_plan")
         if not rclone.dry_run_valid(item, digest, fingerprint) or not isinstance(plan, dict):

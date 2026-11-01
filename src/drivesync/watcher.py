@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 
 from . import filters, i18n
+from .config import effective_excludes as configuration_excludes
 
 
 def gio_monitor(path):
@@ -68,7 +69,7 @@ class FolderWatchers:
         self.debounce = Debouncer(enqueue, schedule, cancel, clock)
         self.monitors = {}  # folder id -> {directory: Gio.FileMonitor}
         self.roots = {}
-        self.excludes = []
+        self.excludes = {}
         self.limit = 20000
         self.fallback = set()
         self.warned = set()
@@ -84,13 +85,15 @@ class FolderWatchers:
     def configure(self, config):
         folders = [(f["id"], os.path.abspath(os.path.expanduser(f["local"])))
                    for f in config["folders"] if f["enabled"] and f["initialized"]]
-        signature = (tuple(folders), tuple(config["excludes"]), config["max_monitors"], config["debounce_seconds"])
+        per_folder = {f["id"]: configuration_excludes(config, f) for f in config["folders"]}
+        signature = (tuple(folders), tuple((k, tuple(v)) for k, v in sorted(per_folder.items())),
+                     config["max_monitors"], config["debounce_seconds"])
         if signature == self.signature:
             return
         self.close()
         self.signature = signature
         self.roots = {key: Path(path) for key, path in folders}
-        self.excludes, self.limit = list(config["excludes"]), config["max_monitors"]
+        self.excludes, self.limit = per_folder, config["max_monitors"]
         self.debounce.seconds = config["debounce_seconds"]
         self.fallback.clear()
         self.fallback_reasons.clear()
@@ -133,7 +136,7 @@ class FolderWatchers:
             if not self._safe(folder_id, directory):
                 continue
             relative = directory.relative_to(self.roots[folder_id]).as_posix()
-            if filters.excluded(relative, True, self.excludes):
+            if filters.excluded(relative, True, self.excludes.get(folder_id, [])):
                 continue
             if directory not in monitors:
                 if self.count >= self.limit:
@@ -182,7 +185,7 @@ class FolderWatchers:
                 continue
             directory = path.is_dir()
             relative = path.relative_to(self.roots[folder_id]).as_posix()
-            if filters.excluded(relative, directory, self.excludes):
+            if filters.excluded(relative, directory, self.excludes.get(folder_id, [])):
                 continue
             relevant = True
             if directory:

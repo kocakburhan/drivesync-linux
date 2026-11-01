@@ -118,6 +118,21 @@ def remove_folder(data, folder_id):
     return result
 
 
+def folder_excludes_edit(data, folder_id, excludes):
+    result = deepcopy(data)
+    folder = config.folder_by_id(result, folder_id)
+    patterns = []
+    for pattern in excludes:
+        pattern = pattern.strip()
+        if pattern and pattern not in patterns:
+            patterns.append(pattern)
+    if patterns:
+        folder["excludes"] = patterns
+    else:
+        folder.pop("excludes", None)
+    return config.validate(result)
+
+
 def settings_edit(data, poll, debounce, max_delete, excludes):
     result = deepcopy(data)
     result.update(poll_interval_minutes=poll, debounce_seconds=debounce,

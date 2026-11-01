@@ -651,6 +651,16 @@ _STRINGS = {
     "FOREGROUND_HELP": (
         'Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)',
         'Run in the foreground in this process instead of the service (lost on restart)'),
+    # --- per-folder excludes ---
+    "FOLDER_EXCLUDES": (
+        'Hariç tutmalar…',
+        'Excludes…'),
+    "FOLDER_EXCLUDES_TITLE": (
+        'Hariç tutmalar: {name}',
+        'Excludes: {name}'),
+    "FOLDER_EXCLUDES_NOTE": (
+        'Bu kurallar, Ayarlar\'daki genel kurallara ek olarak yalnızca bu klasör için geçerlidir.',
+        'These rules apply to this folder only, in addition to the global rules in Settings.'),
 }
 
 HELP = _Localized({

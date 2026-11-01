@@ -169,7 +169,7 @@ class DriveSyncExtension(GObject.GObject, Nautilus.InfoProvider, Nautilus.MenuPr
                 if not path:
                     return []
                 folder, relative = model.folder_for_path(path, self.config.get("folders", []))
-                if not folder or model.excluded(relative, file.is_directory(), self.config.get("excludes", [])):
+                if not folder or model.excluded(relative, file.is_directory(), model.folder_excludes(self.config, folder)):
                     return []
                 folders.add(folder["id"])
             sync = Nautilus.MenuItem(name="DriveSync::sync", label=i18n.NAUTILUS_SYNC)

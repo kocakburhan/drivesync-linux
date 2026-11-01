@@ -108,6 +108,12 @@ def validate(data):
         for key in ("enabled", "initialized"):
             if type(folder[key]) is not bool:
                 invalid(f"folders.{key}")
+        if "excludes" in folder:
+            if not isinstance(folder["excludes"], list):
+                invalid("folders.excludes")
+            for pattern in folder["excludes"]:
+                if not clean_text(pattern) or pattern != pattern.strip():
+                    invalid("folders.excludes")
     return result
 
 
@@ -138,6 +144,15 @@ def folder_by_id(config, folder_id):
         if folder["id"] == folder_id:
             return folder
     raise ConfigError(i18n.UNKNOWN_FOLDER.format(id=folder_id))
+
+
+def effective_excludes(config, folder=None):
+    """Global patterns followed by the folder's own, without duplicates."""
+    result = list(config["excludes"])
+    for pattern in (folder or {}).get("excludes", []):
+        if pattern not in result:
+            result.append(pattern)
+    return result
 
 
 def remote_path(config, folder=None):

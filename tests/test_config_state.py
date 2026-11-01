@@ -97,7 +97,7 @@ class ConfigStateTests(IsolatedTest):
         digest = self.prepare(initialized=True)
         self.config["excludes"].append("*.new")
         self.config["folders"][0]["enabled"] = False
-        changed = filters.prepare(self.paths, self.config, self.store)
+        changed = filters.prepare(self.paths, self.config, self.store)["docs"]
         item = self.store.read()["folders"]["docs"]
         self.assertNotEqual(digest, changed)
         self.assertTrue(item["needs_resync"])
@@ -215,3 +215,81 @@ class ConfigStateTests(IsolatedTest):
         item = self.store.read()["folders"]["docs"]
         self.assertFalse(item["needs_resync"])
         self.assertEqual(item["status"], "not_initialized")
+
+    def test_folder_excludes_validate_and_merge(self):
+        value = deepcopy(self.config)
+        value["folders"][0]["excludes"] = ["*.psd", "*.tmp"]
+        checked = config.validate(value)
+        self.assertEqual(config.effective_excludes(checked, checked["folders"][0]),
+                         checked["excludes"] + ["*.psd"])
+        for bad in ("x", [""], [" a"], [1], ["a\nb"]):
+            value["folders"][0]["excludes"] = bad
+            with self.assertRaises(config.ConfigError):
+                config.validate(value)
+
+    def add_second_folder(self):
+        other = self.root / "Other"
+        other.mkdir()
+        self.config["folders"].append({"id": "other", "local": str(other), "remote_name": "Other",
+                                       "enabled": True, "initialized": False})
+        with execution_lock(self.paths):
+            filters.prepare(self.paths, self.config, self.store)
+        for folder in self.config["folders"]:
+            folder["initialized"] = True
+        config.save(self.paths, self.config)
+        self.store.folder("docs", status="ok")
+        self.store.folder("other", status="ok")
+
+    def test_per_folder_filter_files(self):
+        self.add_second_folder()
+        self.config["folders"][0]["excludes"] = ["*.psd"]
+        digests = filters.prepare(self.paths, self.config, self.store)
+        docs = self.paths.filters_for("docs").read_text()
+        other = self.paths.filters_for("other").read_text()
+        self.assertEqual(docs.splitlines()[0], "+ /.drivesync-check")
+        self.assertIn("- *.psd", docs)
+        self.assertNotIn("- *.psd", other)
+        self.assertEqual(other, filters.render(self.config["excludes"]))
+        self.assertNotEqual(digests["docs"], digests["other"])
+        self.assertFalse(self.paths.legacy_filters.exists())
+        del self.config["folders"][1]
+        filters.prepare(self.paths, self.config, self.store)
+        self.assertFalse(self.paths.filters_for("other").exists())
+
+    def test_folder_excludes_change_resyncs_only_that_folder(self):
+        self.add_second_folder()
+        self.config["folders"][0]["excludes"] = ["*.psd"]
+        filters.prepare(self.paths, self.config, self.store)
+        folders = self.store.read()["folders"]
+        self.assertTrue(folders["docs"]["needs_resync"])
+        self.assertFalse(folders["other"]["needs_resync"])
+        self.assertEqual(folders["other"]["status"], "ok")
+
+    def test_global_change_resyncs_all_initialized(self):
+        self.add_second_folder()
+        self.config["excludes"].append("*.new")
+        filters.prepare(self.paths, self.config, self.store)
+        folders = self.store.read()["folders"]
+        self.assertTrue(folders["docs"]["needs_resync"] and folders["other"]["needs_resync"])
+
+    def test_migration_from_global_hash_does_not_force_resync(self):
+        self.add_second_folder()
+        legacy = filters.digest_of(self.config["excludes"])
+        def downgrade(value):
+            value["filters_sha256"] = legacy
+            for item in value["folders"].values():
+                del item["filters_sha256"]
+        self.store.update(downgrade)
+        self.paths.legacy_filters.write_text(filters.render(self.config["excludes"]))
+        filters.prepare(self.paths, self.config, self.store)
+        folders = self.store.read()["folders"]
+        self.assertFalse(folders["docs"]["needs_resync"] or folders["other"]["needs_resync"])
+        self.assertEqual(folders["docs"]["filters_sha256"], legacy)
+        self.assertFalse(self.paths.legacy_filters.exists())
+        # A folder that already had own patterns at migration time does change.
+        self.store.update(downgrade)
+        self.config["folders"][0]["excludes"] = ["*.psd"]
+        filters.prepare(self.paths, self.config, self.store)
+        folders = self.store.read()["folders"]
+        self.assertTrue(folders["docs"]["needs_resync"])
+        self.assertFalse(folders["other"]["needs_resync"])

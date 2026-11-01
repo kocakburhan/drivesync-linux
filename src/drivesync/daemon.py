@@ -51,7 +51,7 @@ class Daemon:
         self.next_poll = time.monotonic()
         self.next_init_scan = 0
         self.job = None
-        self.digest = None
+        self.digests = {}
         self.sources = []
         self.checker = remote_watch.RemoteChecker(paths, lambda: self.config)
         self.remote_warned = False
@@ -337,7 +337,7 @@ class Daemon:
         # Refresh config and state under the lock before selecting any work.
         try:
             candidate = configuration.load(self.paths)
-            self.digest = filters.prepare(self.paths, candidate, self.store)
+            self.digests = filters.prepare(self.paths, candidate, self.store)
             self.config = candidate
             self.watchers.configure(candidate)
             entry = self.queue.pop()
@@ -436,7 +436,7 @@ class Daemon:
     def _init_begin(self):
         folder, request = self.active_folder, self.job["request"]
         self.job["fingerprint"] = configuration.pair_hash(self.config, folder)
-        if request.get("filters_sha256") != self.digest or request.get("pair_sha256") != self.job["fingerprint"]:
+        if request.get("filters_sha256") != self.digests.get(folder["id"]) or request.get("pair_sha256") != self.job["fingerprint"]:
             self._init_needs_approval(i18n.INIT_CONFIG_CHANGED)
             return
         command = [rclone.executable(self.config), "mkdir", configuration.remote_path(self.config, folder)]
@@ -461,7 +461,7 @@ class Daemon:
         self.store.daemon(last_error=None)
         folder = self.active_folder
         item = self.store.read()["folders"][folder["id"]]
-        if rclone.dry_run_valid(item, self.digest, self.job["fingerprint"]):
+        if rclone.dry_run_valid(item, self.digests.get(folder["id"]), self.job["fingerprint"]):
             # The approval is fresh and no run has started since: nothing new to check.
             self._init_start_real()
             return
@@ -523,7 +523,8 @@ class Daemon:
                     current = configuration.load(self.paths)
                     current_folder = configuration.folder_by_id(current, folder_id)
                     if (configuration.pair_hash(current, current_folder) != self.job["fingerprint"]
-                            or filters.render(current["excludes"]) != filters.render(self.config["excludes"])):
+                            or filters.render(configuration.effective_excludes(current, current_folder))
+                            != filters.render(configuration.effective_excludes(self.config, self.active_folder))):
                         raise ValueError(i18n.CHANGED_DURING_RUN)
                     current_folder["initialized"] = True
                     configuration.save(self.paths, current)

@@ -68,7 +68,14 @@ class Paths:
         return self.data_dir / "remote-index"
 
     @property
-    def filters(self):
+    def filters_dir(self):
+        return self.data_dir / "filters"
+
+    def filters_for(self, folder_id):
+        return self.filters_dir / f"{folder_id}.txt"
+
+    @property
+    def legacy_filters(self):
         return self.data_dir / "filters.txt"
 
     def ensure(self):

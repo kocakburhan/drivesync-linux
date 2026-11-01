@@ -66,7 +66,7 @@ def estimate_watches(settings, cap=100000):
             base = Path(directory)
             names[:] = [name for name in names if not (base / name).is_symlink()
                         and not filters.excluded((base / name).relative_to(root).as_posix(),
-                                                 True, settings["excludes"])]
+                                                 True, config.effective_excludes(settings, folder))]
     return count, complete
 
 

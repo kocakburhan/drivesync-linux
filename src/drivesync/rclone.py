@@ -25,7 +25,7 @@ def executable(config):
 def bisync_command(paths, config, folder, log, *, resync=False, dry_run=False, force=False):
     command = [executable(config), "bisync", os.path.expanduser(folder["local"]),
                remote_path(config, folder), "--workdir", str(paths.workdir / folder["id"]),
-               "--filters-file", str(paths.filters), "--resilient", "--recover", "--max-lock", "5m",
+               "--filters-file", str(paths.filters_for(folder["id"])), "--resilient", "--recover", "--max-lock", "5m",
                "--conflict-resolve", "newer", "--conflict-loser", "delete", "--check-access",
                "--check-filename", CHECK_FILENAME, "--max-delete", str(config["max_delete_percent"]),
                "--drive-skip-gdocs", "--skip-links", "--create-empty-src-dirs", "--compare", "size,modtime",

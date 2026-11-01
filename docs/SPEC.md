@@ -26,7 +26,7 @@ provides a Turkish UI.
 | State (JSON, written atomically) | `~/.local/state/drivesync/state.json` |
 | Logs (one file per run, keep last 200 runs, plus `daemon.log` rotated at 5 MB) | `~/.local/state/drivesync/logs/` |
 | bisync workdir | `~/.local/share/drivesync/bisync/` |
-| Generated filter file | `~/.local/share/drivesync/filters.txt` |
+| Generated filter files (one per folder) | `~/.local/share/drivesync/filters/<folder id>.txt` |
 
 Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rely on this).
 
@@ -51,7 +51,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "paused": false,
   "excludes": ["node_modules/", ".venv/", "venv/", "__pycache__/", "build/", "dist/", ".git/",
                "*.tmp", "*.swp", "*~", ".~lock.*", "~$*"],
-  "folders": []
+  "folders": []   // each folder may carry an optional "excludes": [patterns] that add to the global list
 }
 ```
 
@@ -73,12 +73,21 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
 
 ## Filters
 
-Generate `filters.txt` from `excludes`: each entry becomes `- <pattern>`; a pattern ending in `/` excludes that directory at
+Generate one file per folder, `filters/<id>.txt`, from the global `excludes` followed by the folder's optional own
+`excludes` (deduplicated; same syntax and validation). Stale files of removed folders are deleted; the legacy single
+`filters.txt` is removed on first run of the new code. Each entry: each entry becomes `- <pattern>`; a pattern ending in `/` excludes that directory at
 any depth (rclone filter syntax: `- node_modules/**` style — implement correctly for rclone, e.g. `- **/node_modules/**`
 and `- node_modules/**`). The `.drivesync-check` file must never be excluded. Regenerate whenever config changes.
 Note: bisync stores a hash of the filters file and requires `--resync` when it changes. Detect a filter change (store
 sha256 in state) and mark affected folders as needing resync (`needs_resync=true`, status error with Turkish message)
-instead of silently running.
+instead of silently running. The hash is kept per folder (`folders.<id>.filters_sha256`, sha256 of the generated file
+content): a folder's own excludes change resyncs only that folder, a global change every initialized folder.
+Migration: a folder without its own hash is compared against the legacy global `filters_sha256`; a folder without own
+patterns produces byte-identical content to the old global file, so DriveSync does not flag a resync. rclone itself
+(verified by a real-rclone integration test) stores the rules hash in `<filters file>.md5` next to the file, keyed by the
+path, so merely pointing `--filters-file` at `filters/<id>.txt` would make bisync fail with "filters file md5 hash not
+found (must run --resync)". `filters.prepare` therefore copies the legacy `filters.txt.md5` to `filters/<id>.txt.md5`
+once (only if the legacy file still equals the global rules) and then deletes the legacy files.
 
 ## rclone bisync invocation
 
@@ -86,7 +95,7 @@ Normal run (per folder):
 
 ```
 rclone bisync <local> <remote_path>
-  --workdir <workdir> --filters-file <filters.txt>
+  --workdir <workdir> --filters-file <filters/ID.txt>
   --resilient --recover --max-lock 5m
   --conflict-resolve newer --conflict-loser delete
   --check-access --check-filename .drivesync-check
@@ -184,7 +193,8 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
       "status": "ok|syncing|queued|error|blocked_delete|not_initialized|disabled",
       "last_sync_started": "ISO", "last_sync_finished": "ISO", "last_success": "ISO",
       "last_exit_code": 0, "last_error": null, "conflicts": 0, "needs_resync": false,
-      "last_log": "/path/to/run.log", "dry_run_ok_at": "ISO", "dry_run_filters_sha256": "…"
+      "last_log": "/path/to/run.log", "dry_run_ok_at": "ISO", "dry_run_filters_sha256": "…",
+      "filters_sha256": "…"
     }
   }
 }
@@ -251,7 +261,8 @@ recognition or `NOTIFY_FORCE_PORTAL`, not on the display app name or desktop-ent
   edecek)” (`init_queued`) or “Yeniden onay gerekiyor” (`needs_approval`); the latter's button (“Yeniden onayla”)
   re-opens the dry-run review flow. Pure flow logic is in init_flow.py.
 - Preferences edit poll interval, debounce, max-delete and excludes using existing config persistence and
-  ReloadConfig. A Turkish warning explains that exclude changes require preview/resync of initialized folders.
+  ReloadConfig. Each folder row menu has “Hariç tutmalar…”, a small libadwaita window editing that folder's own
+  patterns (added to the global ones) with the same warning. A Turkish warning explains that exclude changes require preview/resync of initialized folders.
 - “Son çakışmalar (N)” opens a modal libadwaita list with path, folder, timestamp, winning side,
   “Klasörü aç” and “Temizle”. Clearing uses the shared state transaction lock and ReloadConfig to refresh clients.
 
@@ -276,7 +287,7 @@ are maintained in [AGENTS.md](../AGENTS.md#cli-reference-and-machine-contracts).
 
 `doctor [--offline] [--json]` checks prerequisites, installation, services and folder state without
 creating config/state. `folder list|add|remove|enable|disable` and `config get|set` /
-`config excludes list|add|remove` avoid hand-editing JSON. Configuration changes notify ReloadConfig.
+`config excludes list|add|remove` and `folder excludes <id> list|add|remove` avoid hand-editing JSON. Configuration changes notify ReloadConfig.
 `status --json` and `progress <id> --json` expose state to agents.
 
 All confirming CLI commands require explicit `--yes`; no command reads a confirmation from stdin,

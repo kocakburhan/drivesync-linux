@@ -136,6 +136,12 @@ def main():
         application.pause_button.emit("clicked")
         application._request.assert_called_with("Pause")
         application.preferences()
+        dialog, entries, add_rule, save = application.folder_excludes(folder)
+        assert dialog.get_title() == i18n.FOLDER_EXCLUDES_TITLE.format(name="Example")
+        add_rule("*.psd")
+        entries[0].set_text("*.psd")
+        save()
+        assert config.load(application.paths)["folders"][0]["excludes"] == ["*.psd"]
         application.ask_remote_name(folder["local"])
         new_local = application.paths.config_dir / "New Folder"
         new_local.mkdir()
