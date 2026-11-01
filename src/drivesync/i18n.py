@@ -794,3 +794,24 @@ DOCTOR_MESSAGES = _Localized({
 
 # --- remote change detection ---
 REMOTE_CHANGE_CHECK_FAILED = "Drive değişiklik denetimi başarısız oldu; tam eşitlemeye dönüldü."
+
+
+# --- init resume ---
+STATUSES["init_queued"] = "İlk eşitleme sırada (yeniden başlatma sonrası devam edecek)"
+STATUSES["needs_approval"] = "Yeniden onay gerekiyor"
+TRAY_INIT_QUEUED = "İlk eşitleme sırada: {name}"
+TRAY_INIT_APPROVAL = "İlk eşitleme yeniden onay bekliyor: {name}"
+INIT_REAPPROVE = "Yeniden onayla"
+INIT_NEEDS_APPROVAL_NOTIFY = "İlk eşitleme yeniden onay bekliyor: {name}"
+INIT_NEEDS_APPROVAL = ("İlk eşitleme yeniden onay bekliyor: plan onaylandığınızdan beri değişti "
+                       "(yeni silme, daha fazla indirme veya ayarlar). Planı yeniden inceleyip onaylayın.")
+INIT_CONFIG_CHANGED = "İlk eşitleme yeniden onay bekliyor: klasör yolları veya filtreler onaydan sonra değişti."
+INIT_GAVE_UP = "İlk eşitleme tekrar tekrar başarısız oldu; kayıt dosyasını inceleyip yeniden başlatın."
+INIT_WAITING = "İlk eşitleme sırada; bağlantı veya hata nedeniyle yeniden denenecek."
+INIT_NO_DAEMON = ("Arka plan servisi çalışmıyor; ilk eşitleme sıraya alınamadı. "
+                  "Servisi başlatın (systemctl --user start drivesync.service) veya --foreground ile bu pencerede çalıştırın.")
+INIT_SUBMITTED = "İlk eşitleme servise iletildi; bilgisayar yeniden başlasa da devam edecek: {id}"
+INIT_SUBMIT_REFUSED = "Servis ilk eşitlemeyi kabul etmedi; durumu ve duraklatma ayarını inceleyin."
+FOREGROUND_HELP = "Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)"
+BACKGROUND_HELP = "Servise ilet (varsayılan; --yes ile aynı davranış)"
+INIT_LAUNCH_FAILED = "Eşitleme başlatılamadı. Arka plan servisinin çalıştığını ve kayıtları kontrol edin."

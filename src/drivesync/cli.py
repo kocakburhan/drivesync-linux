@@ -20,7 +20,7 @@ BUS_ERRORS = (GLib.Error,) if GLib is not None else ()
 from .setup_remote import setup
 from .notify import Notifier
 from .paths import Paths
-from .state import BusyError, StateError, StateStore, execution_lock, folder_state, now
+from .state import BusyError, StateError, StateStore, execution_lock, folder_lock, folder_state, now
 
 
 class Parser(argparse.ArgumentParser):
@@ -64,8 +64,9 @@ def parser():
             child.add_argument("--name", help=i18n.ADD_NAME_HELP)
         if command in ("init", "resync", "force-sync", "setup-remote"):
             child.add_argument("--yes", action="store_true", help=i18n.YES_HELP)
-        if command == "init":
+        if command in ("init", "resync"):
             child.add_argument("--background", action="store_true", help=i18n.BACKGROUND_HELP)
+            child.add_argument("--foreground", action="store_true", help=i18n.FOREGROUND_HELP)
         if command in ("status", "doctor", "progress", "add-folder"):
             child.add_argument("--json", action="store_true", help=i18n.MACHINE_JSON_HELP)
         if command == "doctor":
@@ -216,10 +217,15 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
                     print(i18n.DRY_ACTIONS)
                     for line in result.actions:
                         print(line)
+                # A pending re-approval stays visible until the user decides.
+                keep = folder["initialized"] or item["status"] == "needs_approval"
                 store.folder(folder_id, dry_run_ok_at=now(), dry_run_filters_sha256=digest,
                              dry_run_pair_sha256=fingerprint,
-                             status=item["status"] if folder["initialized"] else "not_initialized",
-                             last_error=item["last_error"] if folder["initialized"] else None,
+                             dry_run_plan=init_flow.approved_plan(
+                                 dict(to_remote=result.to_remote, to_local=result.to_local,
+                                      deletes=result.deletes)),
+                             status=item["status"] if keep else "not_initialized",
+                             last_error=item["last_error"] if keep else None,
                              needs_resync=item["needs_resync"] if folder["initialized"] else False,
                              last_exit_code=0, last_sync_finished=now())
                 if json_output:
@@ -234,6 +240,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
                     current_folder["initialized"] = True
                     configuration.save(paths, current)
                 rclone.apply_result(store, folder_id, result, folder=folder)
+                store.folder(folder_id, init_request=None, init_attempts=0, init_next_retry_at=None)
                 notifier.folder(folder_id, folder["remote_name"], store.read()["folders"][folder_id])
                 print(i18n.REQUEST_OK if force else i18n.RESYNC_OK if resync else i18n.INIT_OK)
                 return 0
@@ -361,30 +368,48 @@ def config_command(paths, args):
     return 0
 
 
-def background_init(paths, args):
-    # Validate before detaching; the child repeats the check under its own lock.
-    with execution_lock(paths, args.id):
+def submit_init(paths, args):
+    """Persist the user's approval, then hand the job to the daemon.
+
+    The daemon owns the job: it resumes it after a reboot or logout, so nothing
+    here may depend on this process or on a transient systemd unit.
+    """
+    kind = args.command
+    if not dbus_service.daemon_running():
+        return failure(args, "daemon_unavailable", i18n.INIT_NO_DAEMON)
+    with folder_lock(paths, args.id):
         data = configuration.load(paths, create=False)
         folder = configuration.folder_by_id(data, args.id)
         if not folder["enabled"]:
             raise ValueError(i18n.DISABLED)
         rclone.check_local(folder)
-        item = StateStore(paths).read()["folders"].get(args.id, folder_state())
+        store = StateStore(paths)
+        item = store.read()["folders"].get(args.id, folder_state())
         digest = hashlib.sha256(filters.render(data["excludes"]).encode()).hexdigest()
-        if not rclone.dry_run_valid(item, digest, configuration.pair_hash(data, folder)):
+        fingerprint = configuration.pair_hash(data, folder)
+        plan = item.get("dry_run_plan")
+        if not rclone.dry_run_valid(item, digest, fingerprint) or not isinstance(plan, dict):
             raise ValueError(i18n.DRY_RUN_REQUIRED)
-    # The launcher next to this module works in both checkouts and installs.
-    package_root = Path(__file__).resolve().parents[2]
-    cli = package_root / "bin/drivesync-cli"
-    if not cli.is_file():
-        cli = package_root.parent / "bin/drivesync-cli"
-    command = init_flow.launch_command(str(cli), args.id, os.environ)
-    result = subprocess.run(command, capture_output=True, text=True, timeout=15,
-                            stdin=subprocess.DEVNULL)
-    if result.returncode:
-        raise ValueError(i18n.BACKGROUND_FAILED)
-    unit = "drivesync-init-" + args.id + ".service"
-    emit(dict(id=args.id, unit=unit)) if args.json else print(i18n.BACKGROUND_STARTED.format(unit=unit))
+        request = dict(kind=kind, approved_at=now(), approved_plan=init_flow.approved_plan(plan),
+                       filters_sha256=digest, pair_sha256=fingerprint)
+        store.folder(args.id, init_request=request, init_attempts=0, init_next_retry_at=None,
+                     status="init_queued", last_error=None, needs_resync=item["needs_resync"])
+
+    def revert():
+        def mutate(value):
+            current = value["folders"].get(args.id)
+            if current and (current.get("init_request") or {}).get("approved_at") == request["approved_at"]:
+                current.update(init_request=None, status=item["status"], last_error=item["last_error"])
+        store.update(mutate)
+    try:
+        accepted = dbus_service.call("StartInit", args.id, kind)
+    except BUS_ERRORS:
+        revert()
+        return failure(args, "daemon_unavailable", i18n.INIT_NO_DAEMON)
+    if not accepted:
+        revert()
+        raise ValueError(i18n.INIT_SUBMIT_REFUSED)
+    emit(dict(id=args.id, kind=kind, queued=True)) if args.json else print(i18n.INIT_SUBMITTED.format(id=args.id))
     return 0
 
 
@@ -429,13 +454,14 @@ def main(argv=None):
         if GLib is None:
             raise ValueError(i18n.GI_REQUIRED)
         if args.command in ("init", "resync"):
-            background = getattr(args, "background", False)
-            if args.dry_run and background or args.json and not (args.dry_run or background):
+            foreground = args.foreground
+            if (args.dry_run and (args.background or foreground) or args.background and foreground
+                    or args.json and foreground):
                 raise ValueError(i18n.REQUEST_REFUSED)
             if not args.dry_run:
                 require_yes(args)
-            if background:
-                return background_init(paths, args)
+            if not args.dry_run and not foreground:
+                return submit_init(paths, args)
             return direct(paths, args.id, dry_run=args.dry_run, resync=args.command == "resync",
                           json_output=args.json)
         if args.command == "force-sync":

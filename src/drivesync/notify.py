@@ -46,3 +46,9 @@ class Notifier:
         elif duration >= 1800 and not self.offline_sent:
             self.offline_sent = True
             self.send(i18n.APP_NAME, i18n.OFFLINE)
+
+    def init_needs_approval(self, name):
+        self.send(i18n.APP_NAME, i18n.INIT_NEEDS_APPROVAL_NOTIFY.format(name=name))
+
+    def init_failed(self, name, message):
+        self.send(i18n.NOTIFY_ERROR.format(name=name), message)

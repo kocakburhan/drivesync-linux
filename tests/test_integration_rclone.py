@@ -220,7 +220,7 @@ class RealRcloneTests(unittest.TestCase):
         # Exercise mkdir again for real init, with the previously previewed path gone.
         remote.rmdir()
         remote.parent.rmdir()
-        run("--yes")
+        run("--yes", "--foreground")
         self.assertEqual((remote / "recording.txt").read_text(), "local recording")
         self.assertTrue((remote / rclone.CHECK_FILENAME).is_file())
         self.assertTrue(config.load(paths)["folders"][0]["initialized"])

@@ -98,7 +98,8 @@ def folder_state():
             "last_error": None, "conflicts": 0, "needs_resync": False,
             "last_log": None, "last_remote_check": None, "last_full_sync": None,
             "dry_run_ok_at": None, "dry_run_filters_sha256": None,
-            "progress": None}
+            "progress": None, "dry_run_plan": None, "init_request": None,
+            "init_attempts": 0, "init_next_retry_at": None}
 
 
 class StateStore:

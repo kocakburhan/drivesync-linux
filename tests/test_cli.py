@@ -19,7 +19,7 @@ class CliTests(IsolatedTest):
                 dry = self.calls()[-1]["argv"]
                 self.assertEqual(dry[dry.index("--transfers") + 1], "2")
                 self.assertNotIn("--drive-pacer-min-sleep", dry)
-                code, _, error = self.cli(operation, "docs", "--yes")
+                code, _, error = self.cli(operation, "docs", "--yes", "--foreground")
                 self.assertEqual(code, 0, error)
                 real = self.calls()[-1]["argv"]
                 for option, value in (("--transfers", "10"), ("--checkers", "12"),
@@ -28,7 +28,7 @@ class CliTests(IsolatedTest):
                 self.assertNotIn("--drive-pacer-burst", real)
 
     def test_initialization_requires_successful_dry_run(self):
-        code, _, error = self.cli("init", "docs", "--yes")
+        code, _, error = self.cli("init", "docs", "--yes", "--foreground")
         self.assertEqual(code, 1)
         self.assertIn(i18n.DRY_RUN_REQUIRED, error)
         self.assertEqual(self.calls(), [])
@@ -42,7 +42,7 @@ class CliTests(IsolatedTest):
         self.assertFalse(config.load(self.paths)["folders"][0]["initialized"])
         self.assertEqual([c["argv"][0] for c in self.calls()], ["mkdir", "bisync"])
         self.assertNotIn("--check-access", self.calls()[1]["argv"])
-        code, output, error = self.cli("init", "docs", "--yes")
+        code, output, error = self.cli("init", "docs", "--yes", "--foreground")
         self.assertEqual(code, 0, error)
         calls = [c["argv"] for c in self.calls()]
         self.assertEqual([c[0] for c in calls], ["mkdir", "bisync", "mkdir", "copyto", "bisync"])
@@ -55,14 +55,14 @@ class CliTests(IsolatedTest):
     def test_failed_dry_run_does_not_authorize_initialization(self):
         self.settings(dry_run={"code": 5, "log": "ERROR : simulated failure\n"})
         self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 1)
-        self.assertEqual(self.cli("init", "docs", "--yes")[0], 1)
+        self.assertEqual(self.cli("init", "docs", "--yes", "--foreground")[0], 1)
         self.assertEqual(len(self.calls()), 2)
         self.assertIsNone(self.store.read()["folders"]["docs"]["dry_run_ok_at"])
 
     def test_expired_dry_run_is_rejected(self):
         self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
         self.store.folder("docs", dry_run_ok_at=(datetime.now(timezone.utc) - timedelta(hours=25)).isoformat())
-        self.assertEqual(self.cli("init", "docs", "--yes")[0], 1)
+        self.assertEqual(self.cli("init", "docs", "--yes", "--foreground")[0], 1)
         self.assertEqual(len(self.calls()), 2)
 
     def test_filter_or_target_change_invalidates_dry_run(self):
@@ -75,15 +75,15 @@ class CliTests(IsolatedTest):
                 else:
                     value["folders"][0]["remote_name"] = "Changed"
                 config.save(self.paths, value)
-                self.assertEqual(self.cli("init", "docs", "--yes")[0], 1)
+                self.assertEqual(self.cli("init", "docs", "--yes", "--foreground")[0], 1)
 
     def test_resync_requires_dry_run_and_clears_safety_state(self):
         self.prepare(initialized=True)
         self.store.folder("docs", status="error", needs_resync=True, last_error=i18n.RESYNC_REQUIRED)
-        self.assertEqual(self.cli("resync", "docs", "--yes")[0], 1)
+        self.assertEqual(self.cli("resync", "docs", "--yes", "--foreground")[0], 1)
         self.assertEqual(self.cli("resync", "docs", "--dry-run")[0], 0)
         self.assertTrue(self.store.read()["folders"]["docs"]["needs_resync"])
-        self.assertEqual(self.cli("resync", "docs", "--yes")[0], 0)
+        self.assertEqual(self.cli("resync", "docs", "--yes", "--foreground")[0], 0)
         self.assertFalse(self.store.read()["folders"]["docs"]["needs_resync"])
 
     def test_delete_block_requires_confirmation_and_force_is_once(self):
@@ -107,7 +107,7 @@ class CliTests(IsolatedTest):
 
     def test_all_direct_operations_refuse_held_execution_lock(self):
         with execution_lock(self.paths, "docs"):
-            for command in (("init", "docs", "--dry-run"), ("resync", "docs", "--yes"),
+            for command in (("init", "docs", "--dry-run"), ("resync", "docs", "--yes", "--foreground"),
                             ("force-sync", "docs", "--yes")):
                 code, _, error = self.cli(*command)
                 self.assertEqual(code, 1)
@@ -117,7 +117,7 @@ class CliTests(IsolatedTest):
     def test_failed_copyto_prevents_bisync(self):
         self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
         self.settings(copyto={"code": 5})
-        self.assertEqual(self.cli("init", "docs", "--yes")[0], 1)
+        self.assertEqual(self.cli("init", "docs", "--yes", "--foreground")[0], 1)
         self.assertEqual([c["argv"][0] for c in self.calls()], ["mkdir", "bisync", "mkdir", "copyto"])
         self.assertFalse(config.load(self.paths)["folders"][0]["initialized"])
 
@@ -198,7 +198,7 @@ class CliTests(IsolatedTest):
     def test_successful_cli_does_not_initialize_libnotify(self):
         with patch("gi.require_version", side_effect=AssertionError("unexpected GI init")):
             self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
-            self.assertEqual(self.cli("init", "docs", "--yes")[0], 0)
+            self.assertEqual(self.cli("init", "docs", "--yes", "--foreground")[0], 0)
 
     def test_failed_initialized_resync_dry_run_keeps_safety_requirement(self):
         self.prepare(initialized=True)

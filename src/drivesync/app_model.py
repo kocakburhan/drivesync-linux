@@ -25,6 +25,8 @@ def folder_row(folder, state, now=None):
     status = state.get("status", "idle")
     if not folder.get("enabled", True):
         status = "disabled"
+    elif status in ("init_queued", "needs_approval"):
+        pass
     elif status == "syncing":
         status = "syncing" if folder.get("initialized", False) else "initial_syncing"
     elif not folder.get("initialized", False):
@@ -32,10 +34,11 @@ def folder_row(folder, state, now=None):
     elif state.get("needs_resync"):
         status = "needs_resync"
     icon = {"ok": "ok", "syncing": "syncing", "initial_syncing": "syncing", "paused": "paused",
-            "offline": "offline", "error": "error", "blocked_delete": "error",
+            "offline": "offline", "error": "error", "blocked_delete": "error", "needs_approval": "error",
             "needs_resync": "error"}.get(status, "neutral")
     hint = ""
-    if state.get("status") != "syncing" and (not folder.get("initialized", False) or state.get("needs_resync")):
+    if (state.get("status") not in ("syncing", "init_queued")
+            and (not folder.get("initialized", False) or state.get("needs_resync"))):
         hint = i18n.INIT_HINT.format(id=folder["id"])
         if state.get("needs_resync"):
             hint += "\n" + i18n.RESYNC_HINT.format(id=folder["id"])
@@ -48,7 +51,8 @@ def folder_row(folder, state, now=None):
     return FolderRow(folder["id"], f'{PurePath(folder["local"]).name} ↔ {remote}',
                      subtitle,
                      icon, hint, folder.get("enabled", True) and folder.get("initialized", False)
-                     and not state.get("needs_resync") and status not in ("blocked_delete", "syncing"),
+                     and not state.get("needs_resync")
+                     and status not in ("blocked_delete", "syncing", "init_queued", "needs_approval"),
                      status, progress["percent"] / 100 if progress else None)
 
 

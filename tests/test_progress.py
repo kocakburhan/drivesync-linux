@@ -163,7 +163,7 @@ class ProgressStateTests(IsolatedTest):
                     observed.append(deepcopy(store.read()["folders"][folder_id]))
                     return result
                 with patch.object(StateStore, "progress", autospec=True, side_effect=publish):
-                    result = self.cli("resync", "docs", "--yes")
+                    result = self.cli("resync", "docs", "--yes", "--foreground")
                 self.assertEqual(result[0], 0 if code == 0 else 1, result)
                 self.assertTrue(observed)
                 self.assertEqual(observed[0]["status"], "syncing")

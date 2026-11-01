@@ -1,5 +1,6 @@
 """Single-instance GLib daemon with one globally serialized rclone child."""
 
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -10,13 +11,19 @@ from datetime import datetime, timedelta, timezone
 
 from gi.repository import Gio, GLib
 
-from . import config as configuration, filters, i18n, rclone, prerequisites, remote_watch
+from . import config as configuration, filters, i18n, init_flow, rclone, prerequisites, remote_watch
 from .dbus_service import Service
 from .notify import Notifier
 from .paths import Paths
 from .queue import SyncQueue
 from .watcher import FolderWatchers
 from .state import BusyError, StateError, StateStore, execution_lock, folder_lock, now, unlocked_folders
+
+# Retry delays (seconds) after a failed init/resync attempt; one more failure gives up.
+INIT_BACKOFF = (60, 300, 900, 3600)
+INIT_MAX_ATTEMPTS = len(INIT_BACKOFF) + 1
+INIT_OFFLINE_WAIT = 60
+INIT_SCAN_SECONDS = 5
 
 
 class Daemon:
@@ -42,6 +49,9 @@ class Daemon:
         self.offline_since = None
         self.next_setup_check = 0
         self.next_poll = time.monotonic()
+        self.next_init_scan = 0
+        self.job = None
+        self.digest = None
         self.sources = []
         self.checker = remote_watch.RemoteChecker(paths, lambda: self.config)
         self.remote_warned = False
@@ -78,6 +88,7 @@ class Daemon:
         item = self.store.read()["folders"].get(folder["id"], {})
         return (self.config_valid and not self.config["paused"] and folder["enabled"]
                 and folder["initialized"] and not item.get("needs_resync", False)
+                and not item.get("init_request")
                 and item.get("status") not in ("blocked_delete", "syncing"))
 
     def _clear_queue(self):
@@ -101,8 +112,12 @@ class Daemon:
                         for folder_id, item in value["folders"].items():
                             if folder_id not in available:
                                 continue
-                            if item["status"] in ("syncing", "queued"):
-                                item.update(status="error", last_error=i18n.INTERRUPTED, progress=None)
+                            if item["status"] in ("syncing", "queued", "init_queued"):
+                                if item.get("init_request"):
+                                    # An approved init/resync survives reboots: resume it.
+                                    item.update(status="init_queued", last_error=None, progress=None)
+                                else:
+                                    item.update(status="error", last_error=i18n.INTERRUPTED, progress=None)
                     with unlocked_folders(self.paths, self.store.read()["folders"]) as available:
                         self.store.update(recover)
                     self.reconciled = True
@@ -116,6 +131,7 @@ class Daemon:
             fields = {} if self.offline_since is not None else {"last_error": None}
             self.store.daemon(status=self._idle_status(), **fields)
             self._changed()
+            self._scan_inits()
             for folder in self.config["folders"]:
                 item = self.store.read()["folders"][folder["id"]]
                 if item.get("needs_resync"):
@@ -176,6 +192,67 @@ class Daemon:
             return False
         return True
 
+    def start_init(self, folder_id, kind):
+        """D-Bus StartInit: run a request the CLI/GUI has already persisted."""
+        if self.stopping or not self.config_valid or kind not in ("init", "resync"):
+            return False
+        try:
+            folder = configuration.folder_by_id(self.config, folder_id)
+            item = self.store.read()["folders"].get(folder_id, {})
+        except (configuration.ConfigError, StateError):
+            return False
+        request = item.get("init_request")
+        if (not folder["enabled"] or not isinstance(request, dict) or request.get("kind") != kind
+                or item.get("status") == "syncing"):
+            return False
+        if not self.config["paused"] and not self.pending_reload:
+            self._enqueue_init(folder_id)
+        # While paused or reloading, the periodic scan queues it afterwards.
+        return True
+
+    def _init_ready(self, folder, item):
+        request = item.get("init_request")
+        if (not self.config_valid or self.config["paused"] or not folder["enabled"]
+                or not isinstance(request, dict) or item.get("status") in ("syncing", "needs_approval")
+                or item.get("init_attempts", 0) >= INIT_MAX_ATTEMPTS):
+            return False
+        due = item.get("init_next_retry_at")
+        if due:
+            try:
+                if datetime.fromisoformat(due) > datetime.now(timezone.utc):
+                    return False
+            except ValueError:
+                pass
+        return True
+
+    def _enqueue_init(self, folder_id):
+        if self.stopping:
+            return False
+        try:
+            folder = configuration.folder_by_id(self.config, folder_id)
+            with folder_lock(self.paths, folder_id):
+                item = self.store.read()["folders"].get(folder_id, {})
+                if not self._init_ready(folder, item):
+                    return False
+                if self.queue.enqueue(folder_id, "init"):
+                    self.previous_statuses[folder_id] = item["status"]
+                    self.store.folder(folder_id, status="init_queued")
+        except (configuration.ConfigError, BusyError, StateError):
+            return False
+        return True
+
+    def _scan_inits(self):
+        self.next_init_scan = time.monotonic() + INIT_SCAN_SECONDS
+        if self.stopping or self.pending_reload or not self.config_valid or self.config["paused"]:
+            return
+        try:
+            items = self.store.read()["folders"]
+        except StateError:
+            return
+        for folder in self.config["folders"]:
+            if items.get(folder["id"], {}).get("init_request"):
+                self._enqueue_init(folder["id"])
+
     def _tick(self):
         if self.progress:
             self.progress.poll()
@@ -186,6 +263,8 @@ class Daemon:
         timestamp = time.monotonic()
         if not self.config_valid and not self.child and timestamp >= self.next_setup_check:
             self.reload_config()
+        if timestamp >= self.next_init_scan:
+            self._scan_inits()
         if timestamp >= self.next_poll:
             self.next_poll = timestamp + self.config["poll_interval_minutes"] * 60
             if not self.pending_reload:
@@ -258,7 +337,7 @@ class Daemon:
         # Refresh config and state under the lock before selecting any work.
         try:
             candidate = configuration.load(self.paths)
-            filters.prepare(self.paths, candidate, self.store)
+            self.digest = filters.prepare(self.paths, candidate, self.store)
             self.config = candidate
             self.watchers.configure(candidate)
             entry = self.queue.pop()
@@ -266,7 +345,16 @@ class Daemon:
             if folder is None:
                 self._release()
                 return
-            if not self._eligible(folder):
+            if "init" in entry[1]:
+                item = self.store.read()["folders"].get(folder["id"], {})
+                if not self._init_ready(folder, item):
+                    if item.get("status") == "init_queued" and not item.get("init_request"):
+                        self.store.folder(folder["id"], status="ok" if folder["initialized"] else "not_initialized")
+                    self._release()
+                    return
+                self.job = dict(kind=item["init_request"].get("kind", "init"),
+                                request=item["init_request"])
+            elif not self._eligible(folder):
                 if self.store.read()["folders"][folder["id"]]["status"] == "queued":
                     self.store.folder(folder["id"], status="ok")
                 self._release()
@@ -281,10 +369,15 @@ class Daemon:
             self.store.folder(folder["id"], status="syncing", progress=None,
                               last_sync_started=now(), last_log=str(self.log))
             self.store.daemon(status="syncing", current_folder=folder["id"])
+            if self.job:
+                self._init_begin()
+                return
             self.child = rclone.AsyncProcess(rclone.probe_command(self.config), self.log, self._probed)
         except (configuration.ConfigError, StateError, OSError, ValueError) as error:
             folder_id = self.queue.current
-            if folder_id:
+            if folder_id and self.job:
+                self._init_record_failure(folder_id, str(error))
+            elif folder_id:
                 self.store.folder(folder_id, status="error", last_error=str(error))
                 self._notify(folder_id)
             self._release()
@@ -338,6 +431,159 @@ class Daemon:
         finally:
             self._release()
 
+    # --- init / resync jobs: approved by the user, executed (and resumed) by the daemon ---
+
+    def _init_begin(self):
+        folder, request = self.active_folder, self.job["request"]
+        self.job["fingerprint"] = configuration.pair_hash(self.config, folder)
+        if request.get("filters_sha256") != self.digest or request.get("pair_sha256") != self.job["fingerprint"]:
+            self._init_needs_approval(i18n.INIT_CONFIG_CHANGED)
+            return
+        command = [rclone.executable(self.config), "mkdir", configuration.remote_path(self.config, folder)]
+        self.child = rclone.AsyncProcess(command, self.log, self._init_mkdir_done)
+
+    def _log_tail(self, path):
+        try:
+            with open(path, "rb") as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - 65536))
+                return stream.read().decode("utf-8", errors="replace")
+        except OSError:
+            return ""
+
+    def _init_mkdir_done(self, code, output):
+        self.child = None
+        if code or self.stopping:
+            self._init_failed(code, output, self.log)
+            return
+        self.offline_since = None
+        self.notifier.offline(None)
+        self.store.daemon(last_error=None)
+        folder = self.active_folder
+        item = self.store.read()["folders"][folder["id"]]
+        if rclone.dry_run_valid(item, self.digest, self.job["fingerprint"]):
+            # The approval is fresh and no run has started since: nothing new to check.
+            self._init_start_real()
+            return
+        # Resuming (reboot, logout, retry): the world may have changed since approval.
+        self.job["dry_log"] = rclone.new_log(self.paths, folder["id"])
+        command = rclone.bisync_command(self.paths, self.config, folder, self.job["dry_log"],
+                                       resync=True, dry_run=True)
+        self.child = rclone.AsyncProcess(command, self.job["dry_log"], self._init_dry_done)
+
+    def _init_dry_done(self, code, output):
+        self.child = None
+        log = self.job["dry_log"]
+        if code or self.stopping:
+            self._init_failed(code, output, log)
+            return
+        result = rclone.parse_log(log, code, dry_run=True)
+        if result.blocked_delete or not init_flow.resume_is_safe(result, self.job["request"]["approved_plan"]):
+            self._init_needs_approval(i18n.INIT_NEEDS_APPROVAL)
+        else:
+            self._init_start_real()
+
+    def _init_start_real(self):
+        folder = self.active_folder
+        try:
+            marker = rclone.create_check(folder)
+        except (ValueError, OSError) as error:
+            self._init_record_failure(folder["id"], str(error))
+            self._release()
+            return
+        self.store.folder(folder["id"], dry_run_ok_at=None)
+        command = [rclone.executable(self.config), "copyto", str(marker),
+                   configuration.remote_path(self.config, folder) + "/" + rclone.CHECK_FILENAME,
+                   "--skip-links", "--drive-skip-gdocs"]
+        self.child = rclone.AsyncProcess(command, self.log, self._init_marker_done)
+
+    def _init_marker_done(self, code, output):
+        self.child = None
+        if code or self.stopping:
+            self._init_failed(code, output, self.log)
+            return
+        folder = self.active_folder
+        command = rclone.bisync_command(self.paths, self.config, folder, self.log, resync=True)
+        self.progress = rclone.LogProgress(self.log, lambda data: self.store.progress(folder["id"], data))
+        self.child = rclone.AsyncProcess(command, self.log, self._init_synced)
+
+    def _init_synced(self, code, output):
+        self.child = None
+        folder_id = self.active_folder["id"]
+        if code or self.stopping:
+            self._init_failed(code, output, self.log)
+            return
+        try:
+            result = rclone.parse_log(self.log, code)
+            if result.blocked_delete:
+                self._init_needs_approval(i18n.DELETE_BLOCKED)
+                return
+            try:
+                with configuration.edit_lock(self.paths):
+                    current = configuration.load(self.paths)
+                    current_folder = configuration.folder_by_id(current, folder_id)
+                    if (configuration.pair_hash(current, current_folder) != self.job["fingerprint"]
+                            or filters.render(current["excludes"]) != filters.render(self.config["excludes"])):
+                        raise ValueError(i18n.CHANGED_DURING_RUN)
+                    current_folder["initialized"] = True
+                    configuration.save(self.paths, current)
+            except ValueError:
+                self._init_needs_approval(i18n.INIT_CONFIG_CHANGED)
+                return
+            rclone.apply_result(self.store, folder_id, result, folder=self.active_folder)
+            self.store.folder(folder_id, init_request=None, init_attempts=0, init_next_retry_at=None)
+            self._notify(folder_id)
+            self._release()
+        except (OSError, StateError, configuration.ConfigError):
+            self.config_valid = False
+            self.stopping = True
+            self._release()
+
+    def _init_failed(self, code, output, log):
+        folder_id = self.active_folder["id"]
+        if self.stopping:
+            # Interrupted by shutdown/logout: the approval stays, the next start resumes.
+            self.store.folder(folder_id, status="init_queued", last_error=None)
+            self._release()
+            return
+        if rclone.is_network_error(output + self._log_tail(log)):
+            if self.offline_since is None:
+                self.offline_since = time.monotonic()
+            self.store.daemon(last_error=i18n.PROBE_ERROR)
+            # Waiting for the network does not use up a retry.
+            self.store.folder(folder_id, status="init_queued", last_error=i18n.PROBE_ERROR,
+                              init_next_retry_at=self._later(INIT_OFFLINE_WAIT))
+            self._release()
+            return
+        result = rclone.parse_log(log, code)
+        self._init_record_failure(folder_id, result.last_error or i18n.SYNC_ERROR, code)
+        self._release()
+
+    def _later(self, seconds):
+        return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
+    def _init_record_failure(self, folder_id, message, code=None):
+        """Bounded retries: backoff 1, 5, 15, 60 minutes, then give up and ask the user."""
+        folder = next((f for f in self.config["folders"] if f["id"] == folder_id),
+                      {"initialized": False, "remote_name": folder_id})
+        item = self.store.read()["folders"].get(folder_id, {})
+        attempts = item.get("init_attempts", 0) + 1
+        common = dict(last_error=message, last_exit_code=code, last_sync_finished=now())
+        if attempts >= INIT_MAX_ATTEMPTS:
+            self.store.folder(folder_id, status="error" if folder["initialized"] else "not_initialized",
+                              init_request=None, init_attempts=0, init_next_retry_at=None, **common)
+            self.notifier.init_failed(folder["remote_name"], i18n.INIT_GAVE_UP)
+        else:
+            self.store.folder(folder_id, status="init_queued", init_attempts=attempts,
+                              init_next_retry_at=self._later(INIT_BACKOFF[attempts - 1]), **common)
+
+    def _init_needs_approval(self, message):
+        folder = self.active_folder
+        self.store.folder(folder["id"], status="needs_approval", last_error=message,
+                          last_sync_finished=now(), dry_run_ok_at=None, init_next_retry_at=None)
+        self.notifier.init_needs_approval(folder["remote_name"])
+        self._release()
+
     def _notify(self, folder_id):
         folder = configuration.folder_by_id(self.config, folder_id)
         self.notifier.folder(folder_id, folder["remote_name"], self.store.read()["folders"][folder_id])
@@ -347,6 +593,7 @@ class Daemon:
             self.store.folder(self.active_folder["id"], progress=None)
             self.watchers.end(self.active_folder["id"])
         self.progress = None
+        self.job = None
         self.previous_statuses.pop(self.queue.current, None)
         self.queue.finish()
         self.active_folder = None

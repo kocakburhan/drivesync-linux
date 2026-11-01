@@ -22,7 +22,7 @@ Paste `drivesync-cli status` output here, after removing personal information.
 
 **Relevant logs / İlgili kayıtlar**
 Paste a short excerpt from the log located by `drivesync-cli logs ID`, or
-`journalctl --user -u drivesync`. Initial sync: `journalctl --user -u drivesync-init-ID`.
+`journalctl --user -u drivesync`.
 
 **Privacy reminder / Gizlilik**
 Remove personal emails, folder/file names, paths, project/account IDs and machine names.

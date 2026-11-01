@@ -10,6 +10,7 @@ INTERFACE = "io.github.kocakburhan.DriveSync1"
 XML = f"""<node><interface name="{INTERFACE}">
   <method name="GetStatus"><arg type="s" direction="out"/></method>
   <method name="SyncNow"><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
+  <method name="StartInit"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="b" direction="out"/></method>
   <method name="Pause"><arg type="b" direction="out"/></method>
   <method name="Resume"><arg type="b" direction="out"/></method>
   <method name="ReloadConfig"><arg type="b" direction="out"/></method>
@@ -43,6 +44,7 @@ class Service:
                 reply = GLib.Variant("(s)", (self.controller.status_json(),))
             else:
                 callbacks = {"SyncNow": lambda: self.controller.sync_now(parameters.unpack()[0]),
+                             "StartInit": lambda: self.controller.start_init(*parameters.unpack()),
                              "Pause": lambda: self.controller.pause(True),
                              "Resume": lambda: self.controller.pause(False),
                              "ReloadConfig": self.controller.reload_config}
@@ -80,7 +82,20 @@ class Service:
 
 def call(method, *arguments):
     connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-    parameters = GLib.Variant("(s)", arguments) if arguments else None
+    parameters = GLib.Variant("(" + "s" * len(arguments) + ")", arguments) if arguments else None
     result = connection.call_sync(BUS_NAME, OBJECT_PATH, INTERFACE, method, parameters,
                                   None, Gio.DBusCallFlags.NONE, 5000, None)
     return result.unpack()[0]
+
+
+def daemon_running():
+    """True when the daemon owns the bus name; False when no session bus or owner."""
+    try:
+        connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        result = connection.call_sync(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+            "NameHasOwner", GLib.Variant("(s)", (BUS_NAME,)), GLib.VariantType.new("(b)"),
+            Gio.DBusCallFlags.NONE, 3000, None)
+        return bool(result.unpack()[0])
+    except GLib.Error:
+        return False

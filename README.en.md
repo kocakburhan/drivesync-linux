@@ -36,7 +36,7 @@ Open the repository in your agent and paste this prompt:
 The agent follows [AGENTS.md](AGENTS.md) and manages folders/settings through the CLI.
 **You still need to:** approve/provide the sudo password for system packages, sign in to Google and click
 browser consent, and review and explicitly approve the first sync preview.
-The agent can launch long initial uploads in the background and monitor progress.
+The agent can hand long initial uploads to the daemon (they survive reboot) and monitor progress.
 
 ## Features
 
@@ -147,7 +147,7 @@ drivesync-cli status
 # Use the ID returned by folder add; here it is documents:
 drivesync-cli init documents --dry-run --json
 # After reviewing and approving the preview:
-drivesync-cli init documents --background --yes
+drivesync-cli init documents --yes   # handed to the daemon; survives reboot
 drivesync-cli progress documents --json
 ```
 
@@ -216,9 +216,9 @@ Removing a folder from the list leaves local and Drive files intact.
   `fs.inotify.max_user_watches`; see [watchers](docs/WATCHERS.md).
 - **Nautilus menus/emblems missing:** close Files windows, run `nautilus -q` and open Files again.
   On GNOME 46 emblems can appear beside icons or filenames.
-- **Preview/init failure:** open logs or use `drivesync-cli logs ID`. Detached initial sync logs:
-  `journalctl --user -u drivesync-init-ID`. For a failed unit, run
-  `systemctl --user reset-failed drivesync-init-ID`, then preview again.
+- **Preview/init failure:** open logs or use `drivesync-cli logs ID`. The daemon runs the initial sync and
+  resumes it after a reboot; if the plan changed meanwhile the folder shows "Yeniden onay gerekiyor" - preview and approve
+  again. Daemon logs: `journalctl --user -u drivesync`.
 - **Daemon stopped / browser not opening:** use a normal graphical login, never sudo.
   Check `systemctl --user status drivesync` and `journalctl --user -u drivesync`.
   Set a working default browser and repeat setup if necessary.
@@ -242,7 +242,7 @@ Wait for active transfers to finish before updating/restarting. Existing configu
 ./uninstall.sh --purge  # also remove DriveSync config/state/bisync data
 ```
 
-Local synced files and Drive data are **untouched**. Finish detached `drivesync-init-ID` jobs before uninstalling.
+Local synced files and Drive data are **untouched**. Finish any running initial sync before uninstalling.
 rclone and its own config remain installed. After purge, reinstalling requires a fresh preview/initial sync.
 
 ## License and contributing

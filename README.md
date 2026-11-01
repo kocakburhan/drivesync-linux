@@ -146,7 +146,7 @@ drivesync-cli status
 # folder add çıktısındaki kimliği kullanın; örnekte documents:
 drivesync-cli init documents --dry-run --json
 # Önizlemeyi inceleyip onayladıktan sonra:
-drivesync-cli init documents --background --yes
+drivesync-cli init documents --yes   # servise iletilir; yeniden başlatmada devam eder
 drivesync-cli progress documents --json
 ```
 
@@ -215,8 +215,8 @@ Klasör satırını listeden çıkarmak iki taraftaki dosyaları silmez.
 - **Nautilus menüsü/işaretleri yok:** açık Dosyalar pencerelerini kapatın, `nautilus -q` çalıştırıp tekrar açın.
   GNOME 46'da işaretler simgenin veya dosya adının yanında olabilir.
 - **Önizleme/ilk eşitleme hatası:** pencere kayıtlarını veya `drivesync-cli logs KİMLİK` yolunu inceleyin.
-  Ayrı başlangıç işi için `journalctl --user -u drivesync-init-KİMLİK`; başarısız işi temizlemek için
-  `systemctl --user reset-failed drivesync-init-KİMLİK` ardından yeniden önizleme.
+  İlk eşitleme servis tarafından yürütülür ve yeniden başlatmadan sonra otomatik devam eder; plan
+  değiştiyse "Yeniden onay gerekiyor" görünür, önizlemeyi yeniden onaylayın. Ayrıntı için `journalctl --user -u drivesync`.
 - **Servis çalışmıyor / tarayıcı açılmıyor:** normal grafik kullanıcı oturumunda çalışın, sudo ile başlatmayın.
   `systemctl --user status drivesync` ve `journalctl --user -u drivesync` çıktısını kontrol edin.
   Varsayılan tarayıcınızı ayarlayıp `setup-remote` komutunu tekrar çalıştırın.
@@ -240,8 +240,8 @@ Aktarım sürerken güncelleme/yeniden başlatma yapmayın. Mevcut config korunu
 ./uninstall.sh --purge  # DriveSync config/durum/bisync verisini de kaldırır
 ```
 
-Drive ve yerel eşitlenen dosyalar **silinmez**. Ayrı başlatılmış `drivesync-init-KİMLİK`
-işini kaldırmadan önce tamamlayın. rclone ikilisi ve kendi yapılandırması korunur.
+Drive ve yerel eşitlenen dosyalar **silinmez**. Sürmekte olan ilk eşitlemeyi kaldırmadan önce
+tamamlayın. rclone ikilisi ve kendi yapılandırması korunur.
 Purge sonrası tekrar kurulumda önce yeni bir dry-run/ilk eşitleme gerekir.
 
 ## Lisans ve katkı

@@ -150,8 +150,8 @@ def main():
         with patch.object(application, "run_background") as background:
             application.launch_init(folder)
             command, done = background.call_args.args
-            assert command[:4] == ["systemd-run", "--user", "--unit=drivesync-init-example", "--collect"]
-            assert command[-3:] == ["init", "example", "--yes"]
+            assert "systemd-run" not in command
+            assert command[-4:] == ["init", "example", "--yes", "--json"]
             done(True, "", "")
             application._request.assert_called_with("GetStatus")
         application.confirm_remove(folder)

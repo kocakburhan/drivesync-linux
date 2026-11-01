@@ -53,7 +53,7 @@ class ConflictTests(IsolatedTest):
         self.assertEqual(self.cli("init", "docs", "--dry-run")[0], 0)
         self.assertEqual(self.store.read()["recent_conflicts"], [])
         with patch("drivesync.notify.Notifier.folder"):
-            code, _, error = self.cli("init", "docs", "--yes")
+            code, _, error = self.cli("init", "docs", "--yes", "--foreground")
         self.assertEqual(code, 0, error)
         entry, = self.store.read()["recent_conflicts"]
         self.assertEqual(entry["folder_local"], self.config["folders"][0]["local"])
