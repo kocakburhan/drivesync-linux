@@ -39,6 +39,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "remote": "gdrive:",
   "root_folder": "Linux-PC",
   "poll_interval_minutes": 5,
+  "full_sync_interval_minutes": 60,
   "debounce_seconds": 10,
   "max_monitors": 20000,
   "max_delete_percent": 25,
@@ -139,6 +140,20 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
   Duplicate queue entries are merged.
 - Timer: every `poll_interval_minutes`, enqueue all `enabled && initialized && !needs_resync && status != blocked_delete`
   folders unless `paused`.
+- Remote change detection (`remote_watch.py`): on each poll a folder whose last full bisync is younger than
+  `full_sync_interval_minutes` (default 60) is not synced blindly. One `rclone backend query <remote>
+  "(modifiedTime > 'T' or createdTime > 'T') and trashed = false"` (whole Drive, JSON array with `id`, `name`,
+  `mimeType`, `parents`, `modifiedTime`, `createdTime`, ...) lists items changed since the oldest folder check.
+  Items are attributed to folders by `parents` using a cache of Drive directory IDs under
+  `<remote><root_folder>` (`rclone lsjson --dirs-only -R --fast-list`, stored in
+  `<data>/remote-index/<folder id>.json`; refreshed lazily after a full bisync and once when a changed item has an
+  unknown parent; still unknown means outside our tree and ignored). Only attributed folders are enqueued
+  (reason `remote-change`). Items without `parents` cannot be attributed: every checked folder whose last full sync is
+  older than `poll_interval_minutes` is enqueued. Unchanged folders get `last_remote_check = check start - 2 minutes`
+  (state.json). A successful bisync sets `last_remote_check` and `last_full_sync` to its finish time.
+  Trashing/deleting on Drive may not change `modifiedTime`, so remote deletions are only guaranteed to be found by the
+  periodic full bisync. Any failure of the check (network, quota, old rclone) logs once and falls back to the old
+  behaviour: full bisync on the poll interval. A folder never fully synced since daemon state exists is always full-synced.
 - Local changes use recursive Gio directory monitors and trailing-edge debounce, then
   `enqueue(folder_id, "local-change")`. Skip excluded directories/symlinks, add new directories,
   ignore a folder’s events during its run and for 5 seconds afterward. `max_monitors` is a positive

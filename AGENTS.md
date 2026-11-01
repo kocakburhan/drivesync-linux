@@ -196,7 +196,8 @@ Quote paths/patterns. For a pattern starting with `-`, put options before the se
 `drivesync-cli config excludes add --json -- '-example'`.
 
 Safe scalar keys: `root_folder` (one safe path component, no `/`, `\`, `:`, control characters, `.` or `..`),
-`poll_interval_minutes` (finite number > 0), `debounce_seconds` (finite number >= 0),
+`poll_interval_minutes` (finite number > 0), `full_sync_interval_minutes` (finite number > 0, default 60:
+safety-net full bisync interval; between full syncs a cheap Drive change check decides), `debounce_seconds` (finite number >= 0),
 `max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1).
 Numbers use JSON number syntax; booleans/null are rejected. Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
@@ -285,7 +286,7 @@ credentials remain installed. After purge, first sync needs a new preview and ap
 
 - Layout: `src/drivesync/cli.py` handles CLI dispatch; `doctor.py` diagnostics; `config.py`/`state.py` atomic
   persistence and locks; `prerequisites.py` local rclone checks; `setup_remote.py` OAuth; `init_flow.py` shared
-  preview/launch commands; `rclone.py` builds/runs synchronization; `daemon.py` schedules it;
+  preview/launch commands; `rclone.py` builds/runs synchronization; `daemon.py` schedules it; `remote_watch.py` cheap Drive change detection (`rclone backend query`);
   `app.py`/`app_model.py`, `tray.py`, `nautilus_ext.py` provide desktop integration.
   `bin/` launchers, `data/` systemd/desktop/icons, `install.sh`/`uninstall.sh`, `tests/` and `docs/` complete the repo.
 - Run the full suite: `python3 -m unittest discover -s tests`.

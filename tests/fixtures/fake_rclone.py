@@ -22,13 +22,15 @@ def main():
         options = settings.get(command, {})
         print(options.get("output", "rclone v1.70.0" if command == "version" else "test:"))
         return options.get("code", 0)
-    assert command in ("bisync", "mkdir", "copyto", "lsf")
+    assert command in ("bisync", "mkdir", "copyto", "lsf", "lsjson", "backend")
     if command == "bisync":
         assert Path(argv[1]).resolve().is_relative_to(root)
         assert argv[2].startswith("test:")
     elif command == "copyto":
         assert Path(argv[1]).resolve().is_relative_to(root)
         assert argv[2].startswith("test:")
+    elif command == "backend":
+        assert argv[1] == "query" and argv[2].startswith("test:")
     else:
         assert argv[1].startswith("test:")
 
@@ -42,6 +44,8 @@ def main():
     settings_path = root / "fake-settings.json"
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
     options = settings.get(command, {})
+    if command == "backend":
+        options = settings.get("query", {})
     if command == "bisync" and "--dry-run" in argv:
         options = settings.get("dry_run", options)
     code = options.get("code", 0)

@@ -96,7 +96,8 @@ def folder_state():
     return {"status": "not_initialized", "last_sync_started": None,
             "last_sync_finished": None, "last_success": None, "last_exit_code": None,
             "last_error": None, "conflicts": 0, "needs_resync": False,
-            "last_log": None, "dry_run_ok_at": None, "dry_run_filters_sha256": None,
+            "last_log": None, "last_remote_check": None, "last_full_sync": None,
+            "dry_run_ok_at": None, "dry_run_filters_sha256": None,
             "progress": None}
 
 

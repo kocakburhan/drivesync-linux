@@ -6,10 +6,11 @@ from logging.handlers import RotatingFileHandler
 import os
 import signal
 import time
+from datetime import datetime, timedelta, timezone
 
 from gi.repository import Gio, GLib
 
-from . import config as configuration, filters, i18n, rclone, prerequisites
+from . import config as configuration, filters, i18n, rclone, prerequisites, remote_watch
 from .dbus_service import Service
 from .notify import Notifier
 from .paths import Paths
@@ -42,6 +43,8 @@ class Daemon:
         self.next_setup_check = 0
         self.next_poll = time.monotonic()
         self.sources = []
+        self.checker = remote_watch.RemoteChecker(paths, lambda: self.config)
+        self.remote_warned = False
         self.watchers = FolderWatchers(self.enqueue, GLib.timeout_add, GLib.source_remove)
 
     def _changed(self):
@@ -186,12 +189,60 @@ class Daemon:
         if timestamp >= self.next_poll:
             self.next_poll = timestamp + self.config["poll_interval_minutes"] * 60
             if not self.pending_reload:
-                for folder in self.config["folders"]:
-                    self.enqueue(folder["id"], "poll")
+                self._poll()
         if self.offline_since is not None:
             self.notifier.offline(timestamp - self.offline_since)
         self._pump()
         return GLib.SOURCE_CONTINUE
+
+    def _poll(self):
+        """Full bisync only when due; otherwise ask Drive cheaply whether anything changed."""
+        if self.config["paused"] or self.checker.running:
+            return
+        current = datetime.now(timezone.utc)
+        interval = timedelta(minutes=self.config["full_sync_interval_minutes"])
+        items = self.store.read()["folders"]
+        cheap, since = [], {}
+        for folder in self.config["folders"]:
+            if not self._eligible(folder):
+                continue
+            item = items.get(folder["id"], {})
+            last_full = remote_watch.parse_time(item.get("last_full_sync"))
+            last_check = remote_watch.parse_time(item.get("last_remote_check"))
+            # A failed folder keeps retrying a full bisync on every poll, as before.
+            if (last_full is None or last_check is None or current - last_full >= interval
+                    or item.get("status") == "error" or item.get("last_exit_code")):
+                self.enqueue(folder["id"], "poll")
+            else:
+                cheap.append(folder)
+                since[folder["id"]] = last_check
+        if cheap:
+            started = current
+            self.checker.check(cheap, since, lambda outcome: self._remote_checked(cheap, started, outcome))
+
+    def _remote_checked(self, folders, started, outcome):
+        if self.stopping or self.pending_reload:
+            return
+        if not outcome.ok:
+            # Never block syncing: behave as before and run a full bisync.
+            if not self.remote_warned:
+                self.remote_warned = True
+                logging.warning("%s (%s)", i18n.REMOTE_CHANGE_CHECK_FAILED, outcome.error)
+            for folder in folders:
+                self.enqueue(folder["id"], "poll")
+            return
+        self.remote_warned = False
+        items = self.store.read()["folders"]
+        poll_age = timedelta(minutes=self.config["poll_interval_minutes"])
+        for folder in folders:
+            last_full = remote_watch.parse_time(items.get(folder["id"], {}).get("last_full_sync"))
+            loose_due = (folder["id"] in outcome.loose and
+                         (last_full is None or started - last_full >= poll_age))
+            if folder["id"] in outcome.changed or loose_due:
+                self.enqueue(folder["id"], "remote-change")
+            else:
+                self.store.folder(folder["id"],
+                                  last_remote_check=(started - remote_watch.SKEW).isoformat())
 
     def _pump(self):
         if self.child or self.stopping or self.pending_reload or not self.config_valid or self.config["paused"]:
@@ -275,6 +326,10 @@ class Daemon:
         try:
             result = rclone.parse_log(self.log, code)
             rclone.apply_result(self.store, folder_id, result, folder=self.active_folder)
+            if code == 0 and not result.blocked_delete:
+                # Our own uploads are older than this moment; later remote changes are newer.
+                self.store.folder(folder_id, last_full_sync=now(), last_remote_check=now())
+                self.checker.mark_stale()
             self._notify(folder_id)
         except (OSError, StateError):
             # A state/log failure must never leave a daemon silently retrying.
@@ -317,6 +372,7 @@ class Daemon:
     def shutdown(self):
         if not self.stopping:
             self.stopping = True
+            self.checker.cancel()
             self._clear_queue()
             if self.child:
                 self.sources.append(GLib.timeout_add_seconds(60, self._terminate))

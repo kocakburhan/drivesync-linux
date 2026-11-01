@@ -255,8 +255,8 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
             store.folder(folder_id, progress=None)
 
 
-SAFE_KEYS = ("root_folder", "poll_interval_minutes", "debounce_seconds", "max_delete_percent",
-             "transfers", "init_transfers", "checkers")
+SAFE_KEYS = ("root_folder", "poll_interval_minutes", "full_sync_interval_minutes", "debounce_seconds",
+             "max_delete_percent", "transfers", "init_transfers", "checkers")
 
 
 def emit(value):

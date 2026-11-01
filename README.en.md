@@ -162,7 +162,7 @@ drivesync-cli resume
 drivesync-cli logs documents       # latest log path
 ```
 
-**Ayarlar** (Settings) edits remote polling (default 5 minutes), local debounce (10 seconds),
+**Ayarlar** (Settings) edits remote polling (default 5 minutes; a cheap Drive change check, with a full bisync only when Drive changed or every `full_sync_interval_minutes` = 60 minutes as a safety net), local debounce (10 seconds),
 maximum deletion percentage (25%) and excludes. Exclude changes stop automatic sync of initialized folders
 until you review and run **Yeniden eşitle**. Use `drivesync-cli config get|set` for safe scalar settings and `config excludes list|add|remove` for excludes.
 See [AGENTS.md](AGENTS.md) for allowed keys and JSON contracts, or the [schema](docs/SPEC.md) for advanced configuration.
