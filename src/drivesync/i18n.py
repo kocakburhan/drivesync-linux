@@ -651,6 +651,25 @@ _STRINGS = {
     "FOREGROUND_HELP": (
         'Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)',
         'Run in the foreground in this process instead of the service (lost on restart)'),
+    # --- bandwidth and power ---
+    "TRAY_PAUSED_METERED": (
+        'Kotalı ağda duraklatıldı',
+        'Paused on a metered network'),
+    "TRAY_PAUSED_BATTERY": (
+        'Pilde duraklatıldı',
+        'Paused on battery'),
+    "BWLIMIT": (
+        'Bant genişliği sınırı',
+        'Bandwidth limit'),
+    "BWLIMIT_HINT": (
+        'Boş = sınırsız. Örnekler: 1M, 500k, 10M:off (yükleme:indirme), 08:00,1M 23:00,off (saatli). Çalışan aktarım eski sınırla biter; yeni sınır sonraki eşitlemede geçerli olur.',
+        'Empty = unlimited. Examples: 1M, 500k, 10M:off (upload:download), 08:00,1M 23:00,off (timetable). A running transfer finishes with the old limit; the new limit applies to the next sync.'),
+    "PAUSE_ON_METERED": (
+        'Kotalı ağda otomatik duraklat',
+        'Pause automatically on metered networks'),
+    "PAUSE_ON_BATTERY": (
+        'Pilde otomatik duraklat',
+        'Pause automatically on battery'),
 }
 
 HELP = _Localized({
@@ -744,6 +763,9 @@ STATUSES = _Localized({
     'needs_approval': (
         'Yeniden onay gerekiyor',
         'Needs approval again'),
+    'auto_paused': (
+        'Otomatik duraklatıldı',
+        'Paused automatically'),
 })
 
 DOCTOR_MESSAGES = _Localized({

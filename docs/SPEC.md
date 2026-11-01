@@ -47,6 +47,10 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "transfers": 4,
   "init_transfers": 8,
   "checkers": 8,
+  "bwlimit": "",
+  "pause_on_battery": false,
+  "pause_on_metered": true,
+  "pause_stops_running": false,
   "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
   "paused": false,
   "excludes": ["node_modules/", ".venv/", "venv/", "__pycache__/", "build/", "dist/", ".git/",
@@ -57,6 +61,20 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
 
 - `language`: `"auto"` | `"tr"` | `"en"`. Precedence: config `tr`/`en` > env `DRIVESYNC_LANG` > locale (`LANGUAGE`, `LC_ALL`,
   `LC_MESSAGES`, `LANG`; Turkish if it starts with `tr`, otherwise English). Strings live in `src/drivesync/i18n.py`.
+- `bwlimit`: `""` (unlimited) or an rclone `--bwlimit` value, passed to every bisync (normal, dry-run and init/resync).
+  Validated locally by a conservative regex (`config.valid_bwlimit`): a rate is `off` or a number with optional
+  `b|k|M|G|T|P` (+`i`, `B`); a limit is `rate` or `upload:download`; a timetable is space-separated `[Mon|Tue|Wed|Thu|Fri|Sat|Sun-]HH:MM,limit`
+  entries (`08:00,1M 23:00,off`). It is not part of the pair hash: changing it never requires a resync. A running transfer
+  keeps the limit it started with; the next run (queued folder, next poll) uses the new one.
+- Auto-pause (`power.py`): `pause_on_metered` (default true; `Gio.NetworkMonitor.get_network_metered()` and
+  `notify::network-metered`) and `pause_on_battery` (default false; UPower `OnBattery` on the system bus, via
+  `g-properties-changed`). If NetworkManager/UPower is unavailable the condition is inactive. While active
+  (`metered` takes precedence over `battery`) the daemon starts nothing: folders/inits may be queued but `_pump` waits, the
+  periodic poll is skipped, `daemon.status` is `auto_paused` and `GetStatus` has `auto_pause: "metered"|"battery"|null`
+  (the manual `paused` flag is unchanged and independent; a manual pause wins in `daemon.status`). A running transfer finishes
+  unless `pause_stops_running` is true: then it is terminated gracefully (SIGTERM) and re-queued (an init keeps its
+  approval and is resumed). The queue resumes automatically when the condition clears. "Sync now" while auto-paused only queues.
+  Window header and tray show "Kotalı ağda duraklatıldı" / "Pilde duraklatıldı".
 - Remote path of a folder = `<remote><root_folder>/<remote_name>` e.g. `gdrive:Linux-PC/Documents`.
 - `initialized=false` means the folder has never completed a `--resync`; the daemon must NOT run normal bisync on it.
 - Unknown keys are preserved on save. Missing keys get defaults. Config is validated; invalid config → clear Turkish error.
@@ -173,7 +191,7 @@ Initialization (per folder), explicitly requested through CLI or GUI, never auto
 
 ```json
 {
-  "daemon": {"status": "idle|syncing|paused|offline|error", "current_folder": null, "pid": 123, "started_at": "ISO", "last_error": null},
+  "daemon": {"status": "idle|syncing|paused|auto_paused|offline|error", "current_folder": null, "pid": 123, "started_at": "ISO", "last_error": null},
   "filters_sha256": "…",
   "recent_conflicts": [
     {"path": "nested/report.txt", "folder": "documents", "folder_name": "Documents",
@@ -250,7 +268,7 @@ recognition or `NOTIFY_FORCE_PORTAL`, not on the display app name or desktop-ent
   and reboot. Rows show “İlk eşitleme sürüyor” (`syncing`), “İlk eşitleme sırada (yeniden başlatma sonrası devam
   edecek)” (`init_queued`) or “Yeniden onay gerekiyor” (`needs_approval`); the latter's button (“Yeniden onayla”)
   re-opens the dry-run review flow. Pure flow logic is in init_flow.py.
-- Preferences edit poll interval, debounce, max-delete and excludes using existing config persistence and
+- Preferences edit poll interval, debounce, max-delete, bandwidth limit, the two auto-pause switches and excludes using existing config persistence and
   ReloadConfig. A Turkish warning explains that exclude changes require preview/resync of initialized folders.
 - “Son çakışmalar (N)” opens a modal libadwaita list with path, folder, timestamp, winning side,
   “Klasörü aç” and “Temizle”. Clearing uses the shared state transaction lock and ReloadConfig to refresh clients.

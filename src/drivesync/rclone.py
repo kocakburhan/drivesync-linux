@@ -33,6 +33,9 @@ def bisync_command(paths, config, folder, log, *, resync=False, dry_run=False, f
     initial_run = resync and not dry_run
     command += ["--transfers", str(config["init_transfers"] if initial_run else config["transfers"]),
                 "--checkers", str(config["checkers"])]
+    if config.get("bwlimit"):
+        # Takes effect for runs started after a settings change; a running transfer keeps its limit.
+        command += ["--bwlimit", config["bwlimit"]]
     if initial_run:
         command += config["init_extra_flags"]
     if resync:

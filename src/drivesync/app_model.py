@@ -118,8 +118,13 @@ def remove_folder(data, folder_id):
     return result
 
 
-def settings_edit(data, poll, debounce, max_delete, excludes):
+def settings_edit(data, poll, debounce, max_delete, excludes, *, bwlimit=None,
+                  pause_on_battery=None, pause_on_metered=None):
     result = deepcopy(data)
     result.update(poll_interval_minutes=poll, debounce_seconds=debounce,
                   max_delete_percent=max_delete, excludes=list(excludes))
+    for key, value in (("bwlimit", None if bwlimit is None else bwlimit.strip()),
+                       ("pause_on_battery", pause_on_battery), ("pause_on_metered", pause_on_metered)):
+        if value is not None:
+            result[key] = value
     return config.validate(result)

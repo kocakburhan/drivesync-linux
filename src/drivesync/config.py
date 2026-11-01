@@ -27,6 +27,8 @@ def defaults():
             "full_sync_interval_minutes": 60, "debounce_seconds": 10,
             "max_delete_percent": 25, "max_monitors": 20000, "paused": False,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
+            "bwlimit": "", "pause_on_battery": False, "pause_on_metered": True,
+            "pause_stops_running": False,
             "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
             "excludes": list(DEFAULT_EXCLUDES), "folders": []}
 
@@ -41,6 +43,24 @@ def clean_text(value):
 
 def component(value):
     return clean_text(value) and value not in (".", "..") and not any(c in value for c in "/\\:")
+
+
+_SIZE = r"\d+(?:\.\d+)?(?:[bB]|[kKmMgGtTpP](?:i?[bB]?)?)?"
+_RATE = rf"(?:{_SIZE}|[oO][fF][fF])"
+_LIMIT = rf"{_RATE}(?::{_RATE})?"
+_ENTRY = rf"(?:(?:[Mm]on|[Tt]ue|[Ww]ed|[Tt]hu|[Ff]ri|[Ss]at|[Ss]un)-)?(?:[01]\d|2[0-3]):[0-5]\d,{_LIMIT}"
+BWLIMIT_RE = re.compile(rf"(?:{_LIMIT}|{_ENTRY}(?: +{_ENTRY})*)")
+
+
+def valid_bwlimit(value):
+    """Conservative local check of rclone's --bwlimit syntax; "" means unlimited.
+
+    Accepted: ``1M`` / ``off`` (sizes b, k, M, G, T, P with optional i/B, decimals allowed),
+    an upload:download split ``10M:off``, and timetables of space-separated
+    ``[Day-]HH:MM,limit`` entries such as ``08:00,1M 23:00,off`` or ``Mon-08:00,512k:2M``.
+    """
+    return (isinstance(value, str) and len(value) <= 200
+            and (value == "" or BWLIMIT_RE.fullmatch(value) is not None))
 
 
 def validate(data):
@@ -75,8 +95,11 @@ def validate(data):
     if (not isinstance(result["init_extra_flags"], list) or
             any(not clean_text(flag) or flag != flag.strip() for flag in result["init_extra_flags"])):
         invalid("init_extra_flags")
-    if type(result["paused"]) is not bool:
-        invalid("paused")
+    if not valid_bwlimit(result["bwlimit"]):
+        invalid("bwlimit")
+    for field in ("paused", "pause_on_battery", "pause_on_metered", "pause_stops_running"):
+        if type(result[field]) is not bool:
+            invalid(field)
     if not isinstance(result["excludes"], list):
         invalid("excludes")
     for pattern in result["excludes"]:

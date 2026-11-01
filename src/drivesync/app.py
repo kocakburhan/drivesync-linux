@@ -677,6 +677,15 @@ class DriveSyncApp(Adw.Application, StatusClient):
             return widget
         debounce = spin(i18n.DEBOUNCE, data["debounce_seconds"], 3600)
         max_delete = spin(i18n.MAX_DELETE, data["max_delete_percent"], 100)
+        network = Adw.PreferencesGroup(description=i18n.BWLIMIT_HINT)
+        page.add(network)
+        bandwidth = Adw.EntryRow(title=i18n.BWLIMIT)
+        bandwidth.set_text(data.get("bwlimit", ""))
+        network.add(bandwidth)
+        on_metered = Adw.SwitchRow(title=i18n.PAUSE_ON_METERED, active=data.get("pause_on_metered", True))
+        on_battery = Adw.SwitchRow(title=i18n.PAUSE_ON_BATTERY, active=data.get("pause_on_battery", False))
+        network.add(on_metered)
+        network.add(on_battery)
         rules = Adw.PreferencesGroup(title=i18n.EXCLUDES, description=i18n.EXCLUDES_WARNING)
         page.add(rules)
         entries = []
@@ -699,7 +708,8 @@ class DriveSyncApp(Adw.Application, StatusClient):
         def save():
             if self.edit_config(lambda latest: app_model.settings_edit(latest,
                     intervals[poll.get_selected()], debounce.get_value(), max_delete.get_value(),
-                    [entry.get_text() for entry in entries])):
+                    [entry.get_text() for entry in entries], bwlimit=bandwidth.get_text(),
+                    pause_on_battery=on_battery.get_active(), pause_on_metered=on_metered.get_active())):
                 window.close()
         save_group.add(button(i18n.SAVE, save))
         page.add(save_group)

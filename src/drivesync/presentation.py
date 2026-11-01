@@ -127,6 +127,10 @@ def tray_frame(frame, syncing, animations=True):
     return (frame + 1) % 8 if syncing and animations else None
 
 
+def auto_pause_text(reason):
+    return {"metered": i18n.TRAY_PAUSED_METERED, "battery": i18n.TRAY_PAUSED_BATTERY}.get(reason, "")
+
+
 @dataclass(frozen=True)
 class Presentation:
     text: str
@@ -167,6 +171,10 @@ def present(status=None, now=None):
         return Presentation(i18n.TRAY_OFFLINE, "offline", paused)
     if paused:
         return Presentation(i18n.TRAY_PAUSED, "paused", True)
+    auto = auto_pause_text(status.get("auto_pause"))
+    if auto and state != "syncing":
+        # Distinct from a manual pause: the controls stay "Pause", no resume is offered.
+        return Presentation(auto, "paused")
     if state == "syncing":
         folder_id = daemon.get("current_folder")
         name = next((f.get("remote_name", folder_id) for f in status.get("folder_config", [])

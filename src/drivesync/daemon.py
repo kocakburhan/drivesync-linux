@@ -15,6 +15,7 @@ from . import config as configuration, filters, i18n, init_flow, rclone, prerequ
 from .dbus_service import Service
 from .notify import Notifier
 from .paths import Paths
+from .power import NullPower, SystemPower
 from .queue import SyncQueue
 from .watcher import FolderWatchers
 from .state import BusyError, StateError, StateStore, execution_lock, folder_lock, now, unlocked_folders
@@ -27,7 +28,7 @@ INIT_SCAN_SECONDS = 5
 
 
 class Daemon:
-    def __init__(self, paths):
+    def __init__(self, paths, power=None):
         self.paths = paths
         self.config = configuration.load(paths)
         self.loop = GLib.MainLoop()
@@ -35,6 +36,10 @@ class Daemon:
         self.previous_statuses = {}
         self.service = None
         self.store = StateStore(paths, self._changed)
+        self.power = power if power is not None else NullPower()
+        self.power.callback = self._power_changed
+        self.auto_reason = None
+        self.auto_stop = False
         self.notifier = Notifier()
         self.child = None
         self.lock = None
@@ -64,6 +69,7 @@ class Daemon:
     def status_json(self):
         value = self.store.read()
         value["paused"] = self.config["paused"]
+        value["auto_pause"] = self.auto_reason
         value["folder_config"] = [
             {**{key: folder[key] for key in ("id", "local", "remote_name", "enabled", "initialized")},
              "remote_path": configuration.remote_path(self.config, folder)}
@@ -75,6 +81,8 @@ class Daemon:
             return "error"
         if self.config["paused"]:
             return "paused"
+        if self.auto_reason:
+            return "auto_paused"
         if self.offline_since is not None:
             return "offline"
         items = self.store.read()["folders"]
@@ -90,6 +98,38 @@ class Daemon:
                 and folder["initialized"] and not item.get("needs_resync", False)
                 and not item.get("init_request")
                 and item.get("status") not in ("blocked_delete", "syncing"))
+
+    def _auto_reason(self):
+        """"metered" / "battery" while an enabled auto-pause condition holds, else None."""
+        if self.config.get("pause_on_metered") and self.power.metered:
+            return "metered"
+        if self.config.get("pause_on_battery") and self.power.on_battery:
+            return "battery"
+        return None
+
+    def _power_changed(self, *_):
+        """Re-evaluate after a network/power signal or a settings change."""
+        reason = self._auto_reason()
+        if reason == self.auto_reason:
+            return
+        self.auto_reason = reason
+        if reason and self.child and self.config.get("pause_stops_running") and not self.stopping:
+            # Graceful stop; the interrupted run is re-queued (init keeps its approval).
+            self.auto_stop = True
+            self._terminate()
+        # Queued work simply waits in _pump and starts when the condition clears.
+        self.store.daemon(status="syncing" if self.child else self._idle_status())
+        self._changed()
+
+    def _auto_stopped(self, folder_id):
+        """Handle a run that ended because pause_stops_running interrupted it."""
+        if not self.auto_stop:
+            return False
+        self.store.folder(folder_id, status=self.previous_statuses.get(folder_id, "ok"),
+                          last_error=None, progress=None)
+        self._release()
+        self.enqueue(folder_id, "resume")
+        return True
 
     def _clear_queue(self):
         for folder_id in self.queue.clear():
@@ -128,6 +168,7 @@ class Daemon:
             self.watchers.configure(candidate)
             self.config_valid = True
             self.pending_reload = False
+            self._power_changed()
             fields = {} if self.offline_since is not None else {"last_error": None}
             self.store.daemon(status=self._idle_status(), **fields)
             self._changed()
@@ -276,7 +317,7 @@ class Daemon:
 
     def _poll(self):
         """Full bisync only when due; otherwise ask Drive cheaply whether anything changed."""
-        if self.config["paused"] or self.checker.running:
+        if self.config["paused"] or self.auto_reason or self.checker.running:
             return
         current = datetime.now(timezone.utc)
         interval = timedelta(minutes=self.config["full_sync_interval_minutes"])
@@ -324,7 +365,8 @@ class Daemon:
                                   last_remote_check=(started - remote_watch.SKEW).isoformat())
 
     def _pump(self):
-        if self.child or self.stopping or self.pending_reload or not self.config_valid or self.config["paused"]:
+        if (self.child or self.stopping or self.pending_reload or not self.config_valid
+                or self.config["paused"] or self.auto_reason):
             return
         if not self.queue.pending:
             return
@@ -385,6 +427,8 @@ class Daemon:
     def _probed(self, code, output):
         self.child = None
         folder_id = self.active_folder["id"]
+        if code and self._auto_stopped(folder_id):
+            return
         if code:
             if rclone.is_network_error(output):
                 if self.offline_since is None:
@@ -416,6 +460,8 @@ class Daemon:
     def _synced(self, code, output):
         self.child = None
         folder_id = self.active_folder["id"]
+        if code and self._auto_stopped(folder_id):
+            return
         try:
             result = rclone.parse_log(self.log, code)
             rclone.apply_result(self.store, folder_id, result, folder=self.active_folder)
@@ -541,6 +587,10 @@ class Daemon:
 
     def _init_failed(self, code, output, log):
         folder_id = self.active_folder["id"]
+        if self.auto_stop:
+            self.store.folder(folder_id, status="init_queued", last_error=None, progress=None)
+            self._release()
+            return
         if self.stopping:
             # Interrupted by shutdown/logout: the approval stays, the next start resumes.
             self.store.folder(folder_id, status="init_queued", last_error=None)
@@ -594,6 +644,7 @@ class Daemon:
             self.watchers.end(self.active_folder["id"])
         self.progress = None
         self.job = None
+        self.auto_stop = False
         self.previous_statuses.pop(self.queue.current, None)
         self.queue.finish()
         self.active_folder = None
@@ -672,7 +723,7 @@ def main():
     logging.basicConfig(handlers=[handler], level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     try:
-        Daemon(paths).run()
+        Daemon(paths, SystemPower()).run()
         return 0
     except (configuration.ConfigError, StateError, RuntimeError, GLib.Error, OSError) as error:
         text = str(error) if isinstance(error, (configuration.ConfigError, StateError, RuntimeError)) else i18n.DAEMON_FAILED

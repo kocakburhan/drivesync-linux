@@ -205,8 +205,15 @@ daemon, tray, CLI and Nautilus; `auto` follows `DRIVESYNC_LANG`, then `LANGUAGE`
 `root_folder` (one safe path component, no `/`, `\`, `:`, control characters, `.` or `..`),
 `poll_interval_minutes` (finite number > 0), `full_sync_interval_minutes` (finite number > 0, default 60:
 safety-net full bisync interval; between full syncs a cheap Drive change check decides), `debounce_seconds` (finite number >= 0),
-`max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1).
-Numbers use JSON number syntax; booleans/null are rejected. Excludes must be nonempty strings without surrounding
+`max_delete_percent` (finite number 0–100), `transfers`, `init_transfers`, `checkers` (integers >= 1),
+`bwlimit` (plain string, `""` = unlimited, passed as rclone `--bwlimit` to every bisync run; accepted forms: `1M`, `500k`,
+`off`, upload:download split `10M:off`, timetable `"08:00,1M 23:00,off"` or `"Mon-08:00,512k:2M 22:00,off"`; sizes are
+numbers with optional `b|k|M|G|T|P` (+`i`/`B`); no resync needed; a running transfer keeps its old limit, the next run uses the new one),
+`pause_on_metered` (boolean, default `true`), `pause_on_battery` (boolean, default `false`) and `pause_stops_running`
+(boolean, default `false`; also stops a running transfer gracefully when auto-pause starts): while a metered network
+(Gio NetworkMonitor) or battery (UPower) condition holds, no new sync starts, work waits in the queue and the daemon status is
+`auto_paused` (`status` JSON has `auto_pause: "metered"|"battery"|null`, separate from the manual `paused`).
+Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys take `true`/`false`). Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
 Changing root/filters/guard invalidates previews; initialized folders can need a fresh approved resync.
 

@@ -173,7 +173,8 @@ drivesync-cli logs documents       # son kayıt dosyası yolu
 ```
 
 **Ayarlar**: Drive kontrol sıklığı (varsayılan 5 dakika; bu kontrol ucuzdur, tam eşitleme yalnızca Drive'da değişiklik görülürse ya da her `full_sync_interval_minutes` = 60 dakikada bir yapılır), yerel değişiklik beklemesi (10 saniye),
-maksimum silme oranı (%25), hariç tutmalar. Hariç tutmalar değişince başlatılmış klasörlerde
+maksimum silme oranı (%25), bant genişliği sınırı (`bwlimit`: boş = sınırsız; `1M`, `10M:off`, `08:00,1M 23:00,off` gibi; eşitleyen işlem eski sınırla biter, yeni sınır sonraki eşitlemede geçerli olur, yeniden eşitleme gerekmez),
+"Kotalı ağda otomatik duraklat" (varsayılan açık) ve "Pilde otomatik duraklat" (varsayılan kapalı) anahtarları (otomatik duraklamada yeni eşitleme başlamaz, çalışan aktarım biter; koşul kalkınca kendiliğinden devam eder; elle duraklatmadan bağımsızdır), hariç tutmalar. Hariç tutmalar değişince başlatılmış klasörlerde
 ilk fırsatta **Yeniden eşitle** gerekir; otomatik eşitleme güvenlik için durur.
 Ajanlar ayarlar için `drivesync-cli config get|set`, hariç tutmalar için `config excludes list|add|remove`
 kullanmalıdır. İzin verilen anahtarlar ve JSON çıktıları: [AGENTS.md](AGENTS.md). Gelişmiş yapılandırma: [şema](docs/SPEC.md).
