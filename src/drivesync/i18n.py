@@ -231,3 +231,7 @@ DOCTOR_MESSAGES = {
     "inotify.watches": "inotify sınırı ile tahmini dizin izleyici ihtiyacı karşılaştırması.",
     "state.folders": "Klasörlerin ilk eşitleme, hata ve ilerleme özeti.",
 }
+
+
+# --- remote change detection ---
+REMOTE_CHANGE_CHECK_FAILED = "Drive değişiklik denetimi başarısız oldu; tam eşitlemeye dönüldü."

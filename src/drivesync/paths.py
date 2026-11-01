@@ -64,6 +64,10 @@ class Paths:
         return self.data_dir / "bisync"
 
     @property
+    def remote_index(self):
+        return self.data_dir / "remote-index"
+
+    @property
     def filters(self):
         return self.data_dir / "filters.txt"
 

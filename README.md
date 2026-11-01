@@ -169,7 +169,7 @@ drivesync-cli resume
 drivesync-cli logs documents       # son kayıt dosyası yolu
 ```
 
-**Ayarlar**: Drive kontrol sıklığı (varsayılan 5 dakika), yerel değişiklik beklemesi (10 saniye),
+**Ayarlar**: Drive kontrol sıklığı (varsayılan 5 dakika; bu kontrol ucuzdur, tam eşitleme yalnızca Drive'da değişiklik görülürse ya da her `full_sync_interval_minutes` = 60 dakikada bir yapılır), yerel değişiklik beklemesi (10 saniye),
 maksimum silme oranı (%25), hariç tutmalar. Hariç tutmalar değişince başlatılmış klasörlerde
 ilk fırsatta **Yeniden eşitle** gerekir; otomatik eşitleme güvenlik için durur.
 Ajanlar ayarlar için `drivesync-cli config get|set`, hariç tutmalar için `config excludes list|add|remove`
