@@ -1,0 +1,22 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  unittest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-gtk-3.0 gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-notify-0.7 gir1.2-ayatanaappindicator3-0.1 python3-nautilus libnotify-bin xvfb dbus dbus-x11 curl
+      - name: Install current rclone
+        run: sudo -v ; curl --fail --show-error https://rclone.org/install.sh | sudo bash
+      - name: Run offline suite with display and private session bus
+        shell: bash
+        run: |
+          export DRIVESYNC_TEST_RCLONE="$(command -v rclone)"
+          xvfb-run -a dbus-run-session -- /usr/bin/python3 -m unittest discover -s tests

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Launch DriveSync from a checkout or ~/.local/bin."""
+from pathlib import Path
+import sys
+
+prefix = Path(__file__).resolve().parent.parent
+for library in (prefix / "src", prefix / "lib", prefix / "lib/drivesync"):
+    if (library / "drivesync/__init__.py").is_file():
+        sys.path.insert(0, str(library))
+        break
+from drivesync.cli import main
+
+raise SystemExit(main())

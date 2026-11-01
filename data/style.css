@@ -1,0 +1,31 @@
+/* Only attach motion classes when gtk-enable-animations is enabled. */
+@keyframes sync-rotation {
+  from { -gtk-icon-transform: rotate(0deg); }
+  to { -gtk-icon-transform: rotate(360deg); }
+}
+.sync-rotate {
+  animation: sync-rotation 1.2s linear infinite;
+}
+@keyframes status-pop {
+  from { -gtk-icon-transform: scale(0.6); opacity: 0.4; }
+  to { -gtk-icon-transform: scale(1); opacity: 1; }
+}
+.status-pop {
+  animation: status-pop 600ms ease-out;
+}
+.folder-row.motion {
+  transition: background-color 600ms ease-out;
+}
+.folder-row.status-flash {
+  background-color: alpha(@accent_color, 0.12);
+  transition-duration: 0ms;
+}
+.sync-progress trough, .sync-progress progress {
+  min-height: 3px;
+}
+.conflict-count {
+  background-color: alpha(@accent_color, 0.15);
+  border-radius: 9px;
+  padding: 0 6px;
+  min-width: 8px;
+}

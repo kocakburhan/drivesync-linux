@@ -1,0 +1,13 @@
+[Unit]
+Description=DriveSync arka plan servisi
+
+[Service]
+Type=simple
+ExecStart="%h/.local/bin/drivesync-daemon"
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=70
+
+[Install]
+WantedBy=default.target

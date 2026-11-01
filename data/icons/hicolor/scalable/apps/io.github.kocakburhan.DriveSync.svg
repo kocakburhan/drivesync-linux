@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>DriveSync</title>
+  <path fill="#3584e4" d="M34 104C18 104 8 93 8 79c0-13 8-23 20-26C29 35 44 22 62 22c17 0 31 11 35 27 14 1 25 12 25 27 0 16-12 28-29 28Z"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="6">
+    <path d="M44 65a23 23 0 0 1 38-9l5 6M87 49v13H74"/>
+    <path d="M88 80a23 23 0 0 1-38 9l-5-6M45 96V83h13"/>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DriveSync
+Comment=Seçili klasörleri Google Drive ile iki yönlü eşitleyin
+Exec=drivesync-app
+Icon=io.github.kocakburhan.DriveSync
+Terminal=false
+Categories=Utility;Network;FileTransfer;
+StartupWMClass=io.github.kocakburhan.DriveSync.App
+StartupNotify=true
