@@ -1,4 +1,4 @@
-"""Pure Turkish tray presentation; no GI, filesystem or bus access."""
+"""Pure, language-aware tray presentation; no GI, filesystem or bus access."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -53,8 +53,15 @@ def relative_time(value, now=None):
     return i18n.YESTERDAY if days == 1 else i18n.DAYS_AGO.format(count=days)
 
 
-def turkish_number(value, decimals=0):
-    return f"{value:,.{decimals}f}".translate(str.maketrans({",": ".", ".": ","}))
+def format_number(value, decimals=0):
+    """Language-aware number: Turkish "1.234,5", English "1,234.5"."""
+    text = f"{value:,.{decimals}f}"
+    if i18n.current_language() == "tr":
+        text = text.translate(str.maketrans({",": ".", ".": ","}))
+    return text
+
+
+turkish_number = format_number  # backwards-compatible alias
 
 
 def eta_text(seconds):
@@ -62,15 +69,21 @@ def eta_text(seconds):
         return ""
     minutes = max(0, int(seconds)) // 60
     hours, minutes = divmod(minutes, 60)
-    duration = (f"{turkish_number(hours)} sa" + (f" {minutes} dk" if minutes else "")) if hours else (
-        f"{minutes} dk" if minutes else f"{int(max(0, seconds))} sn")
-    return "kalan ~" + duration
+    if hours:
+        duration = i18n.DURATION_H.format(value=format_number(hours))
+        if minutes:
+            duration += " " + i18n.DURATION_M.format(value=minutes)
+    elif minutes:
+        duration = i18n.DURATION_M.format(value=minutes)
+    else:
+        duration = i18n.DURATION_S.format(value=int(max(0, seconds)))
+    return i18n.ETA_LEFT.format(duration=duration)
 
 
 def progress_text(progress, *, compact=False):
     if not progress:
         return ""
-    percent = "%" + turkish_number(progress["percent"])
+    percent = i18n.PERCENT.format(value=format_number(progress["percent"]))
     eta = eta_text(progress.get("eta_seconds"))
     if compact:
         return " · ".join(part for part in (percent, eta) if part)
@@ -84,14 +97,16 @@ def progress_text(progress, *, compact=False):
     power = scale(progress["bytes_total"])
     divisor = 1024 ** power
     decimals = 1 if power else 0
-    amount = (f'{turkish_number(progress["bytes_done"] / divisor, decimals)} / '
-              f'{turkish_number(progress["bytes_total"] / divisor, decimals)} {units[power]}')
+    amount = (f'{format_number(progress["bytes_done"] / divisor, decimals)} / '
+              f'{format_number(progress["bytes_total"] / divisor, decimals)} {units[power]}')
     speed = progress.get("speed", 0)
     power = scale(speed)
-    rate = f'{turkish_number(speed / 1024 ** power, 1 if power else 0)} {units[power]}/sn'
+    rate = i18n.RATE.format(value=format_number(speed / 1024 ** power, 1 if power else 0),
+                            unit=units[power])
     files = ""
     if progress.get("files_done") is not None and progress.get("files_total") is not None:
-        files = f'{turkish_number(progress["files_done"])}/{turkish_number(progress["files_total"])} dosya'
+        files = i18n.FILES_PROGRESS.format(done=format_number(progress["files_done"]),
+                                           total=format_number(progress["files_total"]))
     return " · ".join(part for part in (amount, percent, rate, eta, files) if part)
 
 
@@ -103,7 +118,8 @@ def overall_progress(status):
     if not total:
         return ""
     done = sum(item["progress"]["bytes_done"] for item in syncing)
-    return "Toplam: %" + turkish_number(min(100, done / total * 100))
+    return i18n.TOTAL_PROGRESS.format(
+        percent=i18n.PERCENT.format(value=format_number(min(100, done / total * 100))))
 
 
 def tray_frame(frame, syncing, animations=True):
