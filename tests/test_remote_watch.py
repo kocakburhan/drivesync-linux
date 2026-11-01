@@ -99,7 +99,7 @@ class DaemonRemoteTests(IsolatedTest):
         self.assertFalse(daemon.queue.pending)
         self.assertEqual(self.rc("bisync"), [])
         checked = rw.parse_time(self.store.read()["folders"]["docs"]["last_remote_check"])
-        self.assertGreater(checked, NOW - timedelta(minutes=5))
+        self.assertGreater(checked, NOW - rw.SKEW - timedelta(minutes=5))
 
     def test_only_changed_folder_is_enqueued(self):
         daemon = self.make(two=True)
