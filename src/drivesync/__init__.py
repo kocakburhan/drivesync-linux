@@ -1,3 +1,3 @@
 """DriveSync core: safe orchestration of rclone bisync."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 — 2026-11-01
+
+- Two execution lanes: an initial sync or resync no longer blocks routine syncs of other folders. Controlled by `parallel_lanes` (default `true`); `daemon.current_folders` shows what is running in each lane.
+- Configurable conflict policy `conflict_policy`: `newer` (default, the most recently changed copy wins) or `keep_both`, where the older copy is kept as `<name>.drivesync-conflict1`.
+- Opt-in encryption of the rclone configuration with a random password stored in the GNOME keyring: `drivesync-cli secure-config enable|disable|status`. Doctor checks `keyring.available` and `rclone.config_encrypted`. While the keyring is locked, the daemon waits instead of failing.
+- Tests never reach the network: `DRIVESYNC_NO_NETWORK` disables the live update fetch.
+
 ## 0.3.0 — 2026-11-01
 
 - Per-folder exclude rules: each folder gets its own filter file, so changing exclusions only requires a resync of that folder. Manage them with `drivesync-cli folder excludes` or the "Hariç tutmalar…" item in the folder row menu. Upgrades keep rclone's filter hash, so existing folders do not force a resync.
