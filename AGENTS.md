@@ -24,6 +24,9 @@ anything from them into tracked files. Preserve unrelated work in the checkout.
   Do not run `rclone sync` or `rclone bisync` directly: use `drivesync-cli`.
 - Never disable the max-delete guard. Do not raise its value to evade a blocked deletion.
   `force-sync` is a one-run bypass, only for deliberately approved deletions after a fresh preview.
+- Only enable `secure-config` (rclone configuration encryption) with the user's explicit approval: it rewrites
+  the Drive credentials file and relies on the desktop keyring. Never read, print or copy the keyring password;
+  never encrypt, decrypt or move `rclone.conf` by hand. The plaintext backup it leaves must be reported to the user.
 - Run as the normal graphical desktop user, never run DriveSync/install.sh with sudo.
   Only apt needs privilege. Ask the user to run that command or obtain their approval before running it.
 - Do not assume sudo approval, browser access, Google consent or first-sync approval. Explain each user action.
@@ -201,6 +204,10 @@ drivesync-cli logs [ID]
 drivesync-cli config-path
 drivesync-cli update [--check] [--json]
 drivesync-cli update --yes [--force-restart] [--json]
+drivesync-cli secure-config status [--json]
+drivesync-cli secure-config enable --yes [--json]
+drivesync-cli secure-config disable --yes [--json]
+drivesync-cli keyring-password                  # internal: rclone's password command; refuses a TTY
 drivesync-cli --version
 ```
 
@@ -281,6 +288,18 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
   It then runs `git pull --ff-only`, `./install.sh` and `systemctl --user restart drivesync.service drivesync-tray.service`
   in the source directory recorded by `install.sh` in `lib/drivesync/install-info.json` (`source_dir`, `version`, `installed_at`).
   A failed step stops the update (`operation_failed`); the notification action runs the same command in a transient user unit.
+- **secure-config status/enable/disable**: `{"schema_version":1,"enabled":true,"encrypted":true,"backend":"libsecret",
+  "keyring":"ok","password_command":true}` (`encrypted` may be `null` when unknown; `keyring` is `ok|locked|unavailable`;
+  `backend` is `libsecret` (gir1.2-secret-1), `secret-tool` (libsecret-tools) or `null`). `enable` returns
+  `{"enabled":true,"backup":"…/rclone.conf.before-encryption-<time>"}` (a **plaintext 0600 copy** of rclone.conf; tell the
+  user to delete it once everything works), `disable` returns `{"enabled":false}`. `enable` requires an unlocked keyring, a
+  plaintext config and holds the engine lock; it stores a random password in the keyring (attributes `application=drivesync`,
+  `purpose=rclone-config`), encrypts via rclone, verifies `config encryption check` and `listremotes`, then records
+  `rclone_password_command` in config.json. Any failure restores the backup and deletes the keyring item. Every rclone child
+  (daemon, CLI, doctor, setup-remote, remote watch) gets `RCLONE_PASSWORD_COMMAND=<launcher> keyring-password`; the password
+  is never on a command line. While the keyring is locked the daemon status is `keyring_locked` ("Anahtar zinciri kilitli"),
+  work waits like offline and folders are not marked as errors. The key `rclone_password_command` is managed only by
+  `secure-config`, never by `config set`.
 - **progress**: `{"schema_version":1,"id":"docs","enabled":true,"initialized":false,"status":"syncing","needs_resync":false,"progress":{…},…}`.
   Includes the saved folder-state fields described above. Live progress is an object from state (or null), with
   available transfer stats such as bytes_done, bytes_total, percent, speed, eta_seconds, files_done, files_total and updated_at; fields can be unknown.
@@ -307,6 +326,8 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
 | `rclone.version` | `./install.sh --with-rclone` installs and selects the verified local binary; inspect the reported path/version if it still fails. |
 | `remote.configured` | Run setup-remote with the downloaded Desktop client JSON (step 6). |
 | `remote.reachable` | Complete browser consent; check connectivity; for invalid_grant publish the app and reauthorize with --replace --yes after approval. See docs/GOOGLE-CLIENT-ID.en.md. |
+| `keyring.available` | Optional (warn). Install `gir1.2-secret-1` (or `libsecret-tools`) and gnome-keyring, unlock the keyring in the desktop session. Fails only when encryption is enabled and no store is reachable. |
+| `rclone.config_encrypted` | Warn while `rclone.conf` is plaintext: with the user's approval run `drivesync-cli secure-config enable --yes`. Fails if encryption is enabled but the file cannot be read with the password command. |
 | `install.files` | `./install.sh`; doctor lists missing file paths. |
 | `install.units` | `./install.sh`; check custom DRIVESYNC_SYSTEMD_DIR if used. |
 | `systemd.drivesync.enabled` | `systemctl --user enable --now drivesync.service`. |

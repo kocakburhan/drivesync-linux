@@ -14,6 +14,7 @@ from gi.repository import Gio, GLib
 from .config import remote_path
 from .paths import write_json
 from .rclone import executable
+from .secure_config import rclone_env
 
 # Drive search can lag several minutes behind uploads; re-check that window every time.
 SKEW = timedelta(minutes=10)
@@ -143,10 +144,13 @@ def attribute(items, indexes, since, foreign=frozenset()):
     return result
 
 
-def run_capture(command, timeout, done):
+def run_capture(command, timeout, done, env=None):
     """Run a child without blocking; done(exit_code, stdout) is called exactly once on the main loop."""
     try:
-        process = Gio.Subprocess.new(command, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        if env is not None:
+            launcher.set_environ([f"{key}={value}" for key, value in env.items()])
+        process = launcher.spawnv(command)
     except GLib.Error:
         GLib.idle_add(lambda: (done(-1, ""), GLib.SOURCE_REMOVE)[1])
         return None
@@ -181,16 +185,19 @@ class Outcome:
 
 
 class RemoteChecker:
-    def __init__(self, paths, get_config, runner=run_capture):
+    def __init__(self, paths, get_config, runner=None):
         self.paths = paths
         self.get_config = get_config
-        self.runner = runner
+        self.runner = runner or self._default_runner
         self.running = False
         self.stale = True
         self.foreign = set()   # parent IDs seen after a refresh that belong to none of our folders
         self.process = None
         self._since = {}
         self._done = None
+
+    def _default_runner(self, command, timeout, done):
+        return run_capture(command, timeout, done, env=rclone_env(self.get_config()))
 
     def mark_stale(self):
         self.stale = True

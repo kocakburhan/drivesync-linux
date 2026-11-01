@@ -187,6 +187,8 @@ def present(status=None, now=None):
                         and folders.get(f["id"], {}).get("status") == wanted), None)
         if waiting is not None and not paused:
             return Presentation(template.format(name=waiting.get("remote_name", waiting["id"])), icon)
+    if state == "keyring_locked":
+        return Presentation(i18n.KEYRING_LOCKED, "offline", paused)
     if state == "offline":
         return Presentation(i18n.TRAY_OFFLINE, "offline", paused)
     if paused:

@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 
-from . import config, filters, i18n, prerequisites
+from . import config, filters, i18n, keyring_store, prerequisites, secure_config
 from .state import StateError, StateStore, folder_state
 
 GI_TYPES = (("GLib", "2.0"), ("Gio", "2.0"), ("GObject", "2.0"), ("Gtk", "3.0"),
@@ -17,13 +17,13 @@ GI_IDS = ("gi.GLib", "gi.Gio", "gi.GObject", "gi.Gtk3", "gi.Gtk4", "gi.Gdk4", "g
           "gi.AyatanaAppIndicator3", "gi.Nautilus")
 UNITS = ("drivesync", "drivesync-tray")
 INSTALLED_MODULES = ("__init__", "app", "app_model", "cli", "client", "config", "daemon",
-                     "dbus_service", "doctor", "filters", "i18n", "init_flow", "install_rclone",
+                     "dbus_service", "doctor", "filters", "i18n", "init_flow", "install_rclone", "keyring_store",
                      "nautilus_ext", "nautilus_model", "notify", "paths", "prerequisites",
-                     "presentation", "progress", "queue", "rclone", "setup_remote", "state",
+                     "presentation", "progress", "queue", "rclone", "secure_config", "setup_remote", "state",
                      "tray", "watcher")
 CHECK_IDS = ("environment.os", "environment.desktop", "python.version", *GI_IDS,
              "desktop.appindicator", "rclone.version", "remote.configured", "remote.reachable",
-             "install.files", "install.units",
+             "keyring.available", "rclone.config_encrypted", "install.files", "install.units",
              *(f"systemd.{unit}.{kind}" for unit in UNITS for kind in ("enabled", "active")),
              "config.valid", "inotify.watches", "state.folders")
 APT_COMMAND = ("sudo apt update && sudo apt install python3-gi gir1.2-gtk-3.0 "
@@ -31,10 +31,10 @@ APT_COMMAND = ("sudo apt update && sudo apt install python3-gi gir1.2-gtk-3.0 "
                "gir1.2-ayatanaappindicator3-0.1 python3-nautilus libnotify-bin git curl unzip")
 
 
-def run(command, timeout=5):
+def run(command, timeout=5, env=None):
     try:
         return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                              stdin=subprocess.DEVNULL)
+                              stdin=subprocess.DEVNULL, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -109,7 +109,8 @@ def report(paths, *, offline=False):
         match, recent = None, False
     add("rclone.version", "ok" if recent else "fail", "./install.sh --with-rclone",
         binary=binary, version=match.group(0) if match else None, minimum="1.66")
-    remote_result = run([binary, "listremotes"]) if recent else None
+    env = secure_config.rclone_env(settings)
+    remote_result = run([binary, "listremotes"], env=env) if recent else None
     configured = bool(remote_result is not None and remote_result.returncode == 0
                       and settings["remote"] in remote_result.stdout.splitlines())
     setup_fix = "drivesync-cli setup-remote --client-json <path>"
@@ -117,10 +118,20 @@ def report(paths, *, offline=False):
     reachable = None
     if not offline and configured:
         reachable = run([binary, "about", settings["remote"], "--contimeout", "3s", "--timeout", "5s",
-                         "--retries", "1", "--low-level-retries", "1"], timeout=8)
+                         "--retries", "1", "--low-level-retries", "1"], timeout=8, env=env)
     add("remote.reachable", "warn" if offline else
         "ok" if reachable is not None and reachable.returncode == 0 else "fail",
         "docs/GOOGLE-CLIENT-ID.en.md", skipped=offline, timeout_seconds=8)
+
+    store = keyring_store.backend()
+    keyring = keyring_store.probe(store)
+    wanted = secure_config.enabled(settings)
+    add("keyring.available", "ok" if keyring == "ok" else "fail" if wanted and keyring == "unavailable" else "warn",
+        "sudo apt install gir1.2-secret-1 libsecret-tools gnome-keyring",
+        backend=store.name if store else None, state=keyring, required=wanted)
+    encrypted = secure_config.encryption_state(binary, env) if recent else None
+    add("rclone.config_encrypted", "ok" if encrypted else "fail" if wanted and encrypted is None else "warn",
+        "drivesync-cli secure-config enable --yes", encrypted=encrypted, enabled=wanted)
 
     home = Path.home()
     prefix = Path(os.environ.get("DRIVESYNC_PREFIX") or home / ".local").expanduser()

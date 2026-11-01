@@ -7,6 +7,7 @@ import subprocess
 import uuid
 
 from . import config, i18n
+from .secure_config import rclone_env
 from .paths import atomic_write
 from .prerequisites import check_version, executable, remotes
 from .state import execution_lock
@@ -29,13 +30,14 @@ def setup(paths, client_json, remote="gdrive", replace=False):
         settings = config.load(paths)
         binary = executable(settings)
         check_version(binary)
-        existing = remote + ":" in remotes(binary)
+        env = rclone_env(settings)
+        existing = remote + ":" in remotes(binary, env)
         if existing and not replace:
             raise ValueError(i18n.REMOTE_EXISTS)
         if existing:
             try:
                 result = subprocess.run([binary, "config", "file"], capture_output=True,
-                                        text=True, timeout=10, check=True)
+                                        text=True, timeout=10, check=True, env=env)
                 source = Path(result.stdout.strip().splitlines()[-1]).expanduser()
                 if not source.is_absolute() or not source.is_file():
                     raise ValueError
@@ -53,11 +55,11 @@ def setup(paths, client_json, remote="gdrive", replace=False):
                 # --replace really reopens consent after revocation/expiry.
                 command.append("token=")
             result = subprocess.run(command, capture_output=True, text=True, timeout=600,
-                                    stdin=subprocess.DEVNULL)
+                                    stdin=subprocess.DEVNULL, env=env)
             if result.returncode:
                 raise ValueError(i18n.REMOTE_SETUP_FAILED)
             result = subprocess.run([binary, "about", remote + ":"], capture_output=True,
-                                    text=True, timeout=60)
+                                    text=True, timeout=60, env=env)
             if result.returncode:
                 raise ValueError(i18n.REMOTE_SETUP_FAILED)
         except (OSError, subprocess.SubprocessError):

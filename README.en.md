@@ -198,6 +198,12 @@ Removing a folder from the list leaves local and Drive files intact.
   (last 200 runs plus rotated `daemon.log`). Bisync data: `~/.local/share/drivesync/bisync/`.
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` override these roots.
   Logs can contain filenames/paths; remove personal data before sharing them.
+- **Encrypting the token (opt-in):** `rclone.conf` stores the Drive token in plaintext by default.
+  `drivesync-cli secure-config enable --yes` encrypts it with a random password kept in the GNOME keyring
+  (Secret Service), never on disk. While the keyring is locked, sync waits in the "Keyring is locked"
+  state without raising folder errors. Enabling leaves a plaintext backup
+  (`~/.config/drivesync/rclone.conf.before-encryption-*`) that you should delete once you are satisfied.
+  `secure-config disable --yes` reverts it; `secure-config status` shows the state.
 
 ## Troubleshooting
 
