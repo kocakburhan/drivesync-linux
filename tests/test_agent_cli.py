@@ -141,13 +141,36 @@ class AgentCliTests(IsolatedTest):
 
     def test_progress_uses_live_state_and_has_idle_defaults(self):
         self.assertIsNone(self.value("progress", "docs")["progress"])
-        stats = dict(bytes_done=20, bytes_total=100, speed=2.0, eta_seconds=40, updated_at="now")
+        stats = dict(bytes_done=20, bytes_total=100, percent=20.0, speed=2.0, eta_seconds=40,
+                     files_done=3, files_total=10, updated_at="now")
         self.store.folder("docs", status="syncing", progress=stats)
         value = self.value("progress", "docs")
         self.assertEqual(value["status"], "syncing")
         self.assertEqual(value["progress"], stats)
         self.assertEqual(value["id"], "docs")
-        self.assertIn("docs", self.cli("progress", "docs")[1])
+        self.assertIn('"bytes_done"', self.cli("progress", "docs", "--json")[1])
+
+    def test_progress_human_output_matches_window_text_in_both_languages(self):
+        stats = dict(bytes_done=int(0.4 * 1024 ** 3), bytes_total=int(12.1 * 1024 ** 3), percent=4,
+                     speed=1024 ** 2, eta_seconds=3 * 3600 + 180, files_done=313, files_total=4231,
+                     updated_at="now")
+        self.store.folder("docs", status="syncing", progress=stats)
+        code, output, _ = self.cli("progress", "docs")
+        self.assertEqual(code, 0)
+        self.assertEqual(output, "docs: İlk eşitleme sürüyor — 0,4 / 12,1 GB · %4 · 1,0 MB/sn · "
+                                 "kalan ~3 sa 3 dk · 313/4.231 dosya\n")
+        self.assertNotIn("{", output)
+        i18n.set_language("en")
+        self.addCleanup(i18n.set_language, None)
+        code, output, _ = self.cli("progress", "docs")
+        self.assertEqual(output, "docs: Initial sync in progress — 0.4 / 12.1 GB · 4% · 1.0 MB/s · "
+                                 "~3 h 3 min left · 313/4,231 files\n")
+
+    def test_progress_human_output_without_progress_is_status_only(self):
+        self.store.folder("docs", status="ok", progress=None)
+        self.assertEqual(self.cli("progress", "docs")[1], "docs: İlk eşitleme bekliyor\n")
+        self.store.folder("docs", status="syncing", progress=None)
+        self.assertEqual(self.cli("progress", "docs")[1], "docs: İlk eşitleme sürüyor\n")
 
     def test_status_json_with_and_without_daemon(self):
         offline = self.value("status")

@@ -651,6 +651,13 @@ _STRINGS = {
     "FOREGROUND_HELP": (
         'Servis yerine bu işlemde, ön planda çalıştır (yeniden başlatmada kaybolur)',
         'Run in the foreground in this process instead of the service (lost on restart)'),
+    # --- notification actions ---
+    "NOTIFY_REVIEW": (
+        'İncele',
+        'Review'),
+    "NOTIFY_SHOW_CONFLICTS": (
+        'Çakışmaları göster',
+        'Show conflicts'),
 }
 
 HELP = _Localized({

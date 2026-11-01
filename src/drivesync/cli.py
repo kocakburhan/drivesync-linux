@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 import sys
 
-from . import __version__, config as configuration, filters, i18n, init_flow, prerequisites
+from . import __version__, app_model, config as configuration, filters, i18n, init_flow, prerequisites
 
 # doctor must work before python3-gi and the typelibs have been installed.
 try:
@@ -20,6 +20,7 @@ BUS_ERRORS = (GLib.Error,) if GLib is not None else ()
 from .setup_remote import setup
 from .notify import Notifier
 from .paths import Paths
+from .presentation import progress_text
 from .state import BusyError, StateError, StateStore, execution_lock, folder_lock, folder_state, now
 
 
@@ -176,7 +177,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
         log = rclone.new_log(paths, folder_id)
         store.folder(folder_id, last_log=str(log), last_sync_started=now(),
                      status="syncing", dry_run_ok_at=None, progress=None)
-        notifier = Notifier()
+        notifier = Notifier(actions=False)  # the CLI exits before a button could be clicked
         try:
             if not force:
                 command = [rclone.executable(config), "mkdir", configuration.remote_path(config, folder)]
@@ -293,8 +294,6 @@ def reload_daemon():
 
 
 def folder_command(paths, args):
-    from . import app_model
-
     action = "add" if args.command == "add-folder" else args.action
     if action == "list":
         value = dict(folders=configuration.load(paths, create=False)["folders"])
@@ -448,8 +447,13 @@ def main(argv=None):
             if args.json:
                 emit(value)
             else:
-                print(i18n.PROGRESS_LINE.format(id=args.id, status=item["status"],
-                                               progress=json.dumps(item["progress"], ensure_ascii=False)))
+                # Same status and progress wording as the window's folder rows.
+                label = i18n.STATUSES.get(app_model.folder_row(folder, value).status, i18n.STATUSES["idle"])
+                progress = progress_text(item.get("progress"))
+                if progress:
+                    print(i18n.PROGRESS_LINE.format(id=args.id, status=label, progress=progress))
+                else:
+                    print(f"{args.id}: {label}")
             return 0
         if GLib is None:
             raise ValueError(i18n.GI_REQUIRED)
