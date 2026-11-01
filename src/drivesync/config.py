@@ -29,7 +29,7 @@ def defaults():
             "assumed_upload_bytes_per_second": 1048576,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "bwlimit": "", "pause_on_battery": False, "pause_on_metered": True,
-            "pause_stops_running": False,
+            "pause_stops_running": False, "rclone_password_command": "",
             "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
             "excludes": list(DEFAULT_EXCLUDES), "folders": []}
 
@@ -101,6 +101,9 @@ def validate(data):
         invalid("init_extra_flags")
     if not valid_bwlimit(result["bwlimit"]):
         invalid("bwlimit")
+    command = result["rclone_password_command"]
+    if not isinstance(command, str) or (command and (not clean_text(command) or command != command.strip())):
+        invalid("rclone_password_command")
     for field in ("paused", "pause_on_battery", "pause_on_metered", "pause_stops_running", "check_updates"):
         if type(result[field]) is not bool:
             invalid(field)

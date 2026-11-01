@@ -37,7 +37,7 @@ def main():
     def record(phase):
         with open(os.environ["FAKE_RCLONE_RECORD"], "a", encoding="utf-8") as stream:
             fcntl.flock(stream, fcntl.LOCK_EX)
-            stream.write(json.dumps({"argv": argv, "phase": phase, "pid": os.getpid(),
+            stream.write(json.dumps({"argv": argv, "phase": phase, "pid": os.getpid(), "password_command": os.environ.get("RCLONE_PASSWORD_COMMAND"),
                                      "time": time.monotonic()}) + "\n")
 
     record("start")

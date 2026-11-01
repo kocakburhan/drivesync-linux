@@ -191,7 +191,7 @@ def is_network_error(text):
 class AsyncProcess:
     """Drain stdout incrementally, and reap before invoking completion exactly once."""
 
-    def __init__(self, command, log, done):
+    def __init__(self, command, log, done, env=None):
         self.log = Path(log)
         self.done = done
         self.output = ""
@@ -201,8 +201,11 @@ class AsyncProcess:
         self.exit_code = -1
         self.process = None
         try:
-            self.process = Gio.Subprocess.new(command, Gio.SubprocessFlags.STDOUT_PIPE |
-                                             Gio.SubprocessFlags.STDERR_MERGE)
+            launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE |
+                                                  Gio.SubprocessFlags.STDERR_MERGE)
+            if env is not None:
+                launcher.set_environ([f"{key}={value}" for key, value in env.items()])
+            self.process = launcher.spawnv(command)
             self.stream = self.process.get_stdout_pipe()
             self.buffer = b""
             self.stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, self._read)
@@ -257,7 +260,7 @@ class AsyncProcess:
             self.process.force_exit()
 
 
-def run_sync(command, log, progress=None, *, state_progress=None):
+def run_sync(command, log, progress=None, *, state_progress=None, env=None):
     """CLI uses a local GLib loop; stats written by rclone are tailed live."""
     loop = GLib.MainLoop()
     outcome = []
@@ -280,7 +283,7 @@ def run_sync(command, log, progress=None, *, state_progress=None):
         outcome.append((code, output))
         loop.quit()
 
-    child = AsyncProcess(command, log, finished)
+    child = AsyncProcess(command, log, finished, env=env)
     timer = GLib.timeout_add(200, tail)
     try:
         loop.run()

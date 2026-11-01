@@ -198,6 +198,12 @@ Klasör satırını listeden çıkarmak iki taraftaki dosyaları silmez.
   (son 200 çalışma, döndürülen `daemon.log`); bisync kayıtları: `~/.local/share/drivesync/bisync/`.
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` ayarlandıysa karşılık gelen kökler kullanılır.
   Günlükler dosya adları/yollar içerebilir; paylaşmadan önce kişisel bilgileri temizleyin.
+- **Jetonları şifreleme (isteğe bağlı):** `rclone.conf` Drive jetonunu varsayılan olarak düz metin tutar.
+  `drivesync-cli secure-config enable --yes` dosyayı rastgele bir parolayla şifreler; parola GNOME anahtar
+  zincirinde (Secret Service) durur, diske yazılmaz. Anahtar zinciri kilitliyken eşitleme hata vermeden
+  "Anahtar zinciri kilitli" durumunda bekler. Etkinleştirirken oluşan düz metin yedeği
+  (`~/.config/drivesync/rclone.conf.before-encryption-*`) işiniz bitince elle silinmelidir.
+  `secure-config disable --yes` geri alır; `secure-config status` durumu gösterir.
 
 ## Sorun giderme
 

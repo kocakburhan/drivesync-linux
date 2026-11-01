@@ -8,7 +8,8 @@ import subprocess
 from pathlib import Path
 import sys
 
-from . import __version__, app_model, config as configuration, filters, i18n, init_flow, prerequisites, presentation, updates
+from . import (__version__, app_model, config as configuration, filters, i18n, init_flow, prerequisites,
+               presentation, secure_config, updates)
 
 # doctor must work before python3-gi and the typelibs have been installed.
 try:
@@ -75,6 +76,13 @@ def parser():
             child.add_argument("--yes", action="store_true", help=i18n.YES_HELP)
             child.add_argument("--force-restart", action="store_true", help=i18n.UPDATE_FORCE_HELP)
             child.add_argument("--json", action="store_true", help=i18n.MACHINE_JSON_HELP)
+        if command == "secure-config":
+            actions = child.add_subparsers(dest="action", required=True, title=i18n.COMMAND)
+            for action in ("enable", "disable", "status"):
+                sub = actions.add_parser(action, description=i18n.HELP["secure-config"])
+                sub.add_argument("--json", action="store_true", help=i18n.MACHINE_JSON_HELP)
+                if action != "status":
+                    sub.add_argument("--yes", action="store_true", help=i18n.YES_HELP)
         if command == "doctor":
             child.add_argument("--offline", action="store_true", help=i18n.OFFLINE_HELP)
         if command == "progress":
@@ -200,6 +208,9 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
         elif not dry_run and not rclone.dry_run_valid(item, digest, fingerprint):
             raise ValueError(i18n.DRY_RUN_REQUIRED)
 
+        if secure_config.gate(config):
+            raise ValueError(i18n.KEYRING_LOCKED)
+        env = secure_config.rclone_env(config)
         prerequisites.check(config)
         log = rclone.new_log(paths, folder_id)
         store.folder(folder_id, last_log=str(log), last_sync_started=now(),
@@ -208,7 +219,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
         try:
             if not force:
                 command = [rclone.executable(config), "mkdir", configuration.remote_path(config, folder)]
-                code, _ = rclone.run_sync(command, log)
+                code, _ = rclone.run_sync(command, log, env=env)
                 if code:
                     result = rclone.parse_log(log, code)
                     rclone.apply_result(store, folder_id, result, initialized=folder["initialized"], folder=folder)
@@ -221,7 +232,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
                 command = [rclone.executable(config), "copyto", str(marker),
                            configuration.remote_path(config, folder) + "/" + rclone.CHECK_FILENAME,
                            "--skip-links", "--drive-skip-gdocs"]
-                code, _ = rclone.run_sync(command, log, print)
+                code, _ = rclone.run_sync(command, log, print, env=env)
                 if code:
                     rclone.apply_result(store, folder_id, rclone.parse_log(log, code),
                                         initialized=folder["initialized"], folder=folder)
@@ -232,7 +243,7 @@ def direct(paths, folder_id, *, dry_run=False, force=False, resync=False, json_o
                                            resync=not force, dry_run=dry_run, force=force)
             if dry_run and not folder["initialized"] and not json_output:
                 print(i18n.BOOTSTRAP_DRY)
-            code, _ = rclone.run_sync(command, log, None if dry_run else print,
+            code, _ = rclone.run_sync(command, log, None if dry_run else print, env=env,
                                      state_progress=lambda data: store.progress(folder_id, data))
             result = rclone.parse_log(log, code, dry_run=dry_run)
             if dry_run and code == 0 and not result.blocked_delete:
@@ -567,8 +578,30 @@ def submit_init(paths, args):
     return 0
 
 
+def secure_config_command(paths, args):
+    if args.action == "status":
+        value = secure_config.status(paths)
+    else:
+        require_yes(args)
+        value = secure_config.enable(paths) if args.action == "enable" else secure_config.disable(paths)
+        reload_daemon()
+    if args.json:
+        emit(value)
+    elif args.action == "status":
+        print(i18n.SECURE_STATUS_LINE.format(enabled=i18n.YES if value["enabled"] else i18n.NO,
+                                             encrypted=value["encrypted"], backend=value["backend"],
+                                             keyring=value["keyring"]))
+    elif args.action == "enable":
+        print(i18n.SECURE_ENABLED.format(backup=value["backup"]))
+    else:
+        print(i18n.SECURE_DISABLED)
+    return 0
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.command == "keyring-password":
+        return secure_config.main_helper()
     paths = Paths.from_env()
     try:
         if args.command == "config-path":
@@ -590,6 +623,8 @@ def main(argv=None):
                     print(i18n.DOCTOR_LINE.format(**check))
                     print(json.dumps(check["details"], ensure_ascii=False))
             return 0 if value["ok"] else 1
+        if args.command == "secure-config":
+            return secure_config_command(paths, args)
         if args.command == "update":
             return update_command(paths, args)
         if args.command in ("folder", "add-folder"):

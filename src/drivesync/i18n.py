@@ -791,6 +791,59 @@ _STRINGS = {
     "UPDATE_START_FAILED": (
         'Güncelleme arka planda başlatılamadı (systemd-run).',
         'The update could not be started in the background (systemd-run).'),
+
+    # --- keyring encryption ---
+    "KEYRING_LOCKED": (
+        'Anahtar zinciri kilitli',
+        'Keyring is locked'),
+    "KEYRING_MISSING": (
+        'Anahtar zincirinde rclone yapılandırma parolası bulunamadı',
+        'The rclone configuration password was not found in the keyring'),
+    "KEYRING_PASSWORD_TTY": (
+        "Bu komut parolayı yalnızca rclone'a verir; terminale yazdırmaz.",
+        'This command only hands the password to rclone; it never prints it to a terminal.'),
+    "SECURE_NO_HELPER": (
+        'drivesync-cli başlatıcısı bulunamadı; önce ./install.sh çalıştırın.',
+        'The drivesync-cli launcher was not found; run ./install.sh first.'),
+    "SECURE_NO_CONFIG": (
+        'rclone yapılandırma dosyası bulunamadı; önce Drive bağlantısını kurun.',
+        'The rclone configuration file was not found; set up the Drive connection first.'),
+    "SECURE_ALREADY": (
+        'rclone yapılandırması zaten şifreli veya şifreleme etkin.',
+        'The rclone configuration is already encrypted or encryption is enabled.'),
+    "SECURE_NOT_ENABLED": (
+        'Yapılandırma şifrelemesi etkin değil.',
+        'Configuration encryption is not enabled.'),
+    "SECURE_UNSUPPORTED": (
+        'Bu rclone yapılandırma şifrelemesini desteklemiyor veya durumu okunamadı.',
+        'This rclone does not support configuration encryption or its state could not be read.'),
+    "SECURE_NO_BACKEND": (
+        'Parola deposu yok: gir1.2-secret-1 veya libsecret-tools kurun ve anahtar zincirini açın.',
+        'No secret store: install gir1.2-secret-1 or libsecret-tools and make sure a keyring is running.'),
+    "SECURE_KEYRING_LOCKED": (
+        'Anahtar zinciri kilitli; masaüstü oturumunda açın ve yeniden deneyin.',
+        'The keyring is locked; unlock it in the desktop session and try again.'),
+    "SECURE_FAILED": (
+        'Şifreleme tamamlanamadı; yapılandırma değiştirilmedi.',
+        'Encryption could not be completed; the configuration was left unchanged.'),
+    "SECURE_ROLLBACK_FAILED": (
+        'Geri alma başarısız. Özgün rclone yapılandırması şurada duruyor: {path}',
+        'Rollback failed. The original rclone configuration is kept at: {path}'),
+    "SECURE_DELETE_FAILED": (
+        'Şifreleme kapatıldı ama anahtar zincirindeki öğe silinemedi; elle silin.',
+        'Encryption was removed but the keyring item could not be deleted; remove it manually.'),
+    "SECURE_ENABLED": (
+        'rclone yapılandırması şifrelendi. Yedek (düz metin, işiniz bitince silin): {backup}',
+        'The rclone configuration is now encrypted. Backup (plaintext, delete when done): {backup}'),
+    "SECURE_DISABLED": (
+        'rclone yapılandırma şifrelemesi kapatıldı, anahtar zinciri öğesi silindi.',
+        'rclone configuration encryption was removed and the keyring item deleted.'),
+    "SECURE_STATUS_LINE": (
+        'Şifreleme: {enabled}, rclone dosyası şifreli: {encrypted}, depo: {backend}, anahtar zinciri: {keyring}',
+        'Encryption: {enabled}, rclone file encrypted: {encrypted}, store: {backend}, keyring: {keyring}'),
+    "SECURE_ACTION_HELP": (
+        'enable, disable veya status',
+        'enable, disable or status'),
 }
 
 HELP = _Localized({
@@ -842,6 +895,12 @@ HELP = _Localized({
     'update': (
         'DriveSync sürümünü denetle veya güncelle',
         'Check for or install a DriveSync update'),
+    'secure-config': (
+        'rclone yapılandırmasını anahtar zinciri parolasıyla şifrele (isteğe bağlı)',
+        'Encrypt the rclone configuration with a keyring password (opt-in)'),
+    'keyring-password': (
+        'rclone için yapılandırma parolasını anahtar zincirinden ver (iç kullanım)',
+        'Hand the configuration password from the keyring to rclone (internal)'),
 })
 
 STATUSES = _Localized({
@@ -857,6 +916,9 @@ STATUSES = _Localized({
     'offline': (
         'Bağlantı yok',
         'Offline'),
+    'keyring_locked': (
+        'Anahtar zinciri kilitli',
+        'Keyring is locked'),
     'error': (
         'Hata',
         'Error'),
@@ -968,6 +1030,12 @@ DOCTOR_MESSAGES = _Localized({
     'inotify.watches': (
         'inotify sınırı ile tahmini dizin izleyici ihtiyacı karşılaştırması.',
         'Comparison of the inotify limit with the estimated directory watcher need.'),
+    'keyring.available': (
+        'Parola deposu (anahtar zinciri) kullanılabilirliği; yapılandırma şifrelemesi için isteğe bağlı.',
+        'Availability of the secret store (keyring); optional, used for configuration encryption.'),
+    'rclone.config_encrypted': (
+        'rclone yapılandırmasının (Drive belirteci) şifreli olup olmadığı.',
+        'Whether the rclone configuration (Drive token) is encrypted.'),
     'state.folders': (
         'Klasörlerin ilk eşitleme, hata ve ilerleme özeti.',
         "Summary of the folders' initial sync, errors and progress."),

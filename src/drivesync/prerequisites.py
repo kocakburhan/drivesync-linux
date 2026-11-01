@@ -25,9 +25,10 @@ def check_version(binary):
         raise SetupError(i18n.RCLONE_REQUIRED) from None
 
 
-def remotes(binary):
+def remotes(binary, env=None):
     try:
-        result = subprocess.run([binary, "listremotes"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run([binary, "listremotes"], capture_output=True, text=True, timeout=10,
+                                env=env, stdin=subprocess.DEVNULL)
         if result.returncode:
             raise SetupError(i18n.REMOTE_CHECK_FAILED)
         return set(result.stdout.splitlines())
@@ -38,5 +39,6 @@ def remotes(binary):
 def check(config):
     binary = executable(config)
     check_version(binary)
-    if config["remote"] not in remotes(binary):
+    from .secure_config import rclone_env
+    if config["remote"] not in remotes(binary, rclone_env(config)):
         raise SetupError(i18n.REMOTE_MISSING)

@@ -11,7 +11,7 @@ import time
 
 from gi.repository import Gio, GLib
 
-from . import config as configuration, filters, i18n, init_flow, rclone, prerequisites, remote_watch, updates
+from . import config as configuration, filters, i18n, init_flow, rclone, prerequisites, remote_watch, secure_config, updates
 from .dbus_service import Service
 from .notify import Notifier
 from .paths import Paths
@@ -25,6 +25,7 @@ INIT_BACKOFF = (60, 300, 900, 3600)
 INIT_MAX_ATTEMPTS = len(INIT_BACKOFF) + 1
 INIT_OFFLINE_WAIT = 60
 INIT_SCAN_SECONDS = 5
+KEYRING_RETRY_SECONDS = 15
 # The throttle decides whether a release check is due; this only limits how often we ask.
 UPDATE_PROBE_SECONDS = 60
 
@@ -54,6 +55,8 @@ class Daemon:
         self.config_valid = True
         self.reconciled = False
         self.offline_since = None
+        self.keyring_state = None   # None | "locked" | "missing" (encrypted rclone config only)
+        self.next_keyring_check = 0
         self.next_setup_check = 0
         self.next_poll = time.monotonic()
         self.next_init_scan = 0
@@ -66,6 +69,30 @@ class Daemon:
         self.updates = updates.UpdateChecker(self.store, self.notifier.update_available)
         self.update_thread = None
         self.next_update_probe = 0
+
+    def _process(self, command, log, done):
+        # Every rclone child gets the password command of an encrypted configuration.
+        return rclone.AsyncProcess(command, log, done, env=secure_config.rclone_env(self.config))
+
+    def _keyring_gate(self):
+        """False while the keyring password is unreadable; that is waiting, not a folder error."""
+        state = secure_config.gate(self.config)
+        if state != self.keyring_state:
+            self.keyring_state = state
+            fields = {"last_error": {"locked": i18n.KEYRING_LOCKED, "missing": i18n.KEYRING_MISSING}[state]} \
+                if state else ({} if self.offline_since is not None else {"last_error": None})
+            self.store.daemon(status="syncing" if self.child else self._idle_status(), **fields)
+            self._changed()
+        return state is None
+
+    def _keyring_tick(self, timestamp):
+        """While waiting for the keyring, re-check every few seconds and resume once it opens."""
+        if self.keyring_state is None or self.child or timestamp < self.next_keyring_check:
+            return
+        self.next_keyring_check = timestamp + KEYRING_RETRY_SECONDS
+        if self._keyring_gate():
+            self.pending_reload = True   # re-run the remote check that was skipped while locked
+            self.next_poll = 0
 
     def _changed(self):
         if self.service:
@@ -88,6 +115,10 @@ class Daemon:
             return "paused"
         if self.auto_reason:
             return "auto_paused"
+        if self.keyring_state == "locked":
+            return "keyring_locked"
+        if self.keyring_state == "missing":
+            return "error"
         if self.offline_since is not None:
             return "offline"
         items = self.store.read()["folders"]
@@ -169,12 +200,15 @@ class Daemon:
             if candidate["poll_interval_minutes"] != self.config["poll_interval_minutes"]:
                 self.next_poll = min(self.next_poll, time.monotonic() + candidate["poll_interval_minutes"] * 60)
             self.config = candidate
-            prerequisites.check(candidate)
+            if self._keyring_gate():
+                prerequisites.check(candidate)
+            else:
+                prerequisites.check_version(prerequisites.executable(candidate))
             self.watchers.configure(candidate)
             self.config_valid = True
             self.pending_reload = False
             self._power_changed()
-            fields = {} if self.offline_since is not None else {"last_error": None}
+            fields = {} if self.offline_since is not None or self.keyring_state else {"last_error": None}
             self.store.daemon(status=self._idle_status(), **fields)
             self._changed()
             self._scan_inits()
@@ -309,6 +343,7 @@ class Daemon:
         timestamp = time.monotonic()
         if not self.config_valid and not self.child and timestamp >= self.next_setup_check:
             self.reload_config()
+        self._keyring_tick(timestamp)
         if timestamp >= self.next_init_scan:
             self._scan_inits()
         if timestamp >= self.next_update_probe:
@@ -405,6 +440,10 @@ class Daemon:
             return
         if not self.queue.pending:
             return
+        if not self._keyring_gate():
+            # Like offline: nothing is marked as failed; the poll/scan re-queues after unlock.
+            self._clear_queue()
+            return
         try:
             self.lock = execution_lock(self.paths)
             self.lock.__enter__()
@@ -449,7 +488,7 @@ class Daemon:
             if self.job:
                 self._init_begin()
                 return
-            self.child = rclone.AsyncProcess(rclone.probe_command(self.config), self.log, self._probed)
+            self.child = self._process(rclone.probe_command(self.config), self.log, self._probed)
         except (configuration.ConfigError, StateError, OSError, ValueError) as error:
             folder_id = self.queue.current
             if folder_id and self.job:
@@ -490,7 +529,7 @@ class Daemon:
             return
         command = rclone.bisync_command(self.paths, self.config, self.active_folder, self.log)
         self.progress = rclone.LogProgress(self.log, lambda data: self.store.progress(folder_id, data))
-        self.child = rclone.AsyncProcess(command, self.log, self._synced)
+        self.child = self._process(command, self.log, self._synced)
 
     def _synced(self, code, output):
         self.child = None
@@ -521,7 +560,7 @@ class Daemon:
             self._init_needs_approval(i18n.INIT_CONFIG_CHANGED)
             return
         command = [rclone.executable(self.config), "mkdir", configuration.remote_path(self.config, folder)]
-        self.child = rclone.AsyncProcess(command, self.log, self._init_mkdir_done)
+        self.child = self._process(command, self.log, self._init_mkdir_done)
 
     def _log_tail(self, path):
         try:
@@ -550,7 +589,7 @@ class Daemon:
         self.job["dry_log"] = rclone.new_log(self.paths, folder["id"])
         command = rclone.bisync_command(self.paths, self.config, folder, self.job["dry_log"],
                                        resync=True, dry_run=True)
-        self.child = rclone.AsyncProcess(command, self.job["dry_log"], self._init_dry_done)
+        self.child = self._process(command, self.job["dry_log"], self._init_dry_done)
 
     def _init_dry_done(self, code, output):
         self.child = None
@@ -576,7 +615,7 @@ class Daemon:
         command = [rclone.executable(self.config), "copyto", str(marker),
                    configuration.remote_path(self.config, folder) + "/" + rclone.CHECK_FILENAME,
                    "--skip-links", "--drive-skip-gdocs"]
-        self.child = rclone.AsyncProcess(command, self.log, self._init_marker_done)
+        self.child = self._process(command, self.log, self._init_marker_done)
 
     def _init_marker_done(self, code, output):
         self.child = None
@@ -586,7 +625,7 @@ class Daemon:
         folder = self.active_folder
         command = rclone.bisync_command(self.paths, self.config, folder, self.log, resync=True)
         self.progress = rclone.LogProgress(self.log, lambda data: self.store.progress(folder["id"], data))
-        self.child = rclone.AsyncProcess(command, self.log, self._init_synced)
+        self.child = self._process(command, self.log, self._init_synced)
 
     def _init_synced(self, code, output):
         self.child = None
