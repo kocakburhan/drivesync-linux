@@ -7,7 +7,18 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from drivesync import app, config, i18n
+from drivesync import app, config, i18n, init_flow
+
+
+def buttons(widget):
+    found = []
+    child = widget.get_first_child() if widget is not None else None
+    while child is not None:
+        if isinstance(child, app.Gtk.Button):
+            found.append(child)
+        found.extend(buttons(child))
+        child = child.get_next_sibling()
+    return found
 
 
 def main():
@@ -49,6 +60,24 @@ def main():
         with patch.object(application, "launch_init") as launch:
             summary.response("start")
             launch.assert_called_once_with(folder)
+        # Large first uploads show the estimate and exclude buttons that re-run the preview.
+        large = init_flow.Plan(2, 3, 0, 0, (), size=dict(
+            bytes=int(23.4 * 1024 ** 3), files=142783, estimated_seconds=54000,
+            assumed_bytes_per_second=1048576, large=True,
+            largest_subfolders=[dict(name="Videos", bytes=300, files=1)]))
+        large_dialog, _ = application.show_init_summary(folder, large)
+        exclude = [item for item in buttons(large_dialog.get_extra_child())
+                   if item.get_label() == i18n.EXCLUDE_SUBFOLDER]
+        assert len(exclude) == 1
+        with patch.object(application, "edit_config", return_value=True) as edit, \
+             patch.object(application, "start_init") as restart:
+            exclude[0].emit("clicked")
+            before = config.load(application.paths)
+            saved = edit.call_args.args[0](before)
+            # Only this folder's own excludes change (anchored), never the global list.
+            assert config.folder_by_id(saved, folder["id"])["excludes"][-1] == "/Videos/"
+            assert saved["excludes"] == before["excludes"]
+            restart.assert_called_once_with(folder)
         # Preview runs asynchronously, exposing a spinner while the CLI is busy.
         with patch.object(application, "run_background") as background:
             application.start_init(folder)

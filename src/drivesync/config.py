@@ -26,6 +26,7 @@ def defaults():
             "root_folder": "Linux-PC", "language": "auto", "poll_interval_minutes": 5,
             "full_sync_interval_minutes": 60, "debounce_seconds": 10,
             "max_delete_percent": 25, "max_monitors": 20000, "paused": False,
+            "assumed_upload_bytes_per_second": 1048576,
             "transfers": 4, "init_transfers": 8, "checkers": 8,
             "bwlimit": "", "pause_on_battery": False, "pause_on_metered": True,
             "pause_stops_running": False,
@@ -89,6 +90,9 @@ def validate(data):
             invalid(field)
         if maximum is not None and value > maximum:
             invalid(field)
+    speed = result["assumed_upload_bytes_per_second"]
+    if type(speed) not in (int, float) or not 0 < speed < float("inf"):
+        invalid("assumed_upload_bytes_per_second")
     for field in ("max_monitors", "transfers", "init_transfers", "checkers"):
         if type(result[field]) is not int or result[field] < 1:
             invalid(field)

@@ -133,6 +133,21 @@ def folder_excludes_edit(data, folder_id, excludes):
     return config.validate(result)
 
 
+def exclude_added(data, pattern, folder_id=None):
+    """Add one exclude pattern, kept once.
+
+    With folder_id the pattern goes to that folder's own excludes, so only that
+    folder's filters (and resync requirement) change; otherwise to the global list.
+    """
+    if folder_id is None:
+        result = deepcopy(data)
+        if pattern not in result["excludes"]:
+            result["excludes"].append(pattern)
+        return config.validate(result)
+    folder = config.folder_by_id(data, folder_id)
+    return folder_excludes_edit(data, folder_id, list(folder.get("excludes", [])) + [pattern])
+
+
 def settings_edit(data, poll, debounce, max_delete, excludes, *, bwlimit=None,
                   pause_on_battery=None, pause_on_metered=None):
     result = deepcopy(data)

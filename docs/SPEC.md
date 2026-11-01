@@ -51,6 +51,7 @@ Respect `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_DATA_HOME` when set (tests rel
   "pause_on_battery": false,
   "pause_on_metered": true,
   "pause_stops_running": false,
+  "assumed_upload_bytes_per_second": 1048576,
   "init_extra_flags": ["--drive-pacer-min-sleep", "10ms", "--drive-pacer-burst", "200"],
   "paused": false,
   "excludes": ["node_modules/", ".venv/", "venv/", "__pycache__/", "build/", "dist/", ".git/",

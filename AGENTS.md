@@ -125,6 +125,11 @@ Commands below perform real setup **when the user requests setup**; during devel
    ```
    SHOW `to_remote`, `to_local`, `deletes`, `unknown` and `actions` to the user. Explain that at most 50 actions
    are returned; use `drivesync-cli logs FOLDER_ID` to locate the full log for private inspection when needed.
+   SHOW the `size` object too: the local upload size and file count (`bytes`, `files`), the approximate duration
+   (`estimated_seconds`, computed from `assumed_bytes_per_second`) and `largest_subfolders` (up to 5, with their
+   `bytes` and `files`). If `size.large` is `true`, say that the folder is large and **offer to exclude** the largest
+   subfolders the user does not need, e.g. `drivesync-cli config excludes add 'NAME/' --json`. Adding an exclude
+   invalidates the preview: run the preview again and show it again before asking for approval.
    **If deletions > 0, warn prominently.** Get explicit OK before continuing. Do not proceed on `unknown > 0`
    or nonzero exit status. Then launch the approved plan:
    ```bash
@@ -216,6 +221,7 @@ numbers with optional `b|k|M|G|T|P` (+`i`/`B`); no resync needed; a running tran
 (boolean, default `false`; also stops a running transfer gracefully when auto-pause starts): while a metered network
 (Gio NetworkMonitor) or battery (UPower) condition holds, no new sync starts, work waits in the queue and the daemon status is
 `auto_paused` (`status` JSON has `auto_pause: "metered"|"battery"|null`, separate from the manual `paused`).
+`assumed_upload_bytes_per_second` (finite number > 0, default `1048576`; only converts the dry-run `size` into an estimated duration).
 Numbers use JSON number syntax; booleans/null are rejected for numeric keys (the `pause_*` keys take `true`/`false`). Excludes must be nonempty strings without surrounding
 whitespace or control characters. Adding the same pattern twice is idempotent; removing an absent pattern fails.
 Per-folder excludes (subcommands `drivesync-cli folder excludes list`, `drivesync-cli folder excludes add` and
@@ -246,8 +252,13 @@ Argument syntax errors use Turkish stderr with exit 2; help/version are plain te
   **config excludes list/add/remove**: `{"schema_version":1,"patterns":["*.tmp"]}`;
   **folder excludes ID list/add/remove**: `{"schema_version":1,"id":"docs","patterns":["*.psd"],"effective":["…global…","*.psd"]}`
   (`patterns` = the folder's own, `effective` = global + own).
-- **init/resync dry-run**: `{"schema_version":1,"to_remote":1,"to_local":0,"deletes":0,"unknown":0,"actions":[]}`.
+- **init/resync dry-run**: `{"schema_version":1,"to_remote":1,"to_local":0,"deletes":0,"unknown":0,"actions":[],"size":{…}}`.
   Counts are nonnegative integers; actions are at most 50 strings. Failure never authorizes a real run.
+  `size` (new fields may appear later) is the local estimate of what an upload would send: `bytes` and `files` are
+  sums over regular files that the folder's global excludes do not match (symlinks are skipped, like `--skip-links`);
+  `estimated_seconds` is `bytes / assumed_bytes_per_second`; `assumed_bytes_per_second` is the speed used;
+  `large` is `true` when files > 20000 or bytes > 10 GiB; `largest_subfolders` lists up to 5 immediate subdirectories
+  sorted by bytes, each `{"name","bytes","files"}`. The estimate is not a Drive measurement and can differ from rclone.
 - **init/resync --yes (--background)**: `{"schema_version":1,"id":"docs","kind":"init","queued":true}`;
   this means the daemon accepted the approved request, not that synchronization finished. Without a running
   daemon the error code is `daemon_unavailable`.
